@@ -1,4 +1,6 @@
 import type {
+  ChatRequest,
+  ChatResponse,
   DailyUploadCount,
   FileMetadata,
   FileUploadResponse,
@@ -80,6 +82,83 @@ export async function deleteFile(key: string) {
     method: "DELETE",
   });
 }
+
+// --- Chat API ---
+
+export async function sendChatMessage(request: ChatRequest) {
+  return apiFetch<ChatResponse>("/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+}
+
+/** SSE streaming chat — returns an EventSource-like async iterator. */
+export async function streamChatMessage(
+  request: ChatRequest,
+  onEvent: (event: { type: string; [key: string]: unknown }) => void,
+  signal?: AbortSignal,
+) {
+  const res = await fetch(`${API_BASE}/chat/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+    signal,
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(body.detail || `Chat error: ${res.status}`, res.status);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new ApiError("No response body", 0);
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        try {
+          const event = JSON.parse(line.slice(6));
+          onEvent(event);
+        } catch {
+          // skip malformed events
+        }
+      }
+    }
+  }
+}
+
+export async function getChatHistory(conversationId: string) {
+  return apiFetch<{ conversation_id: string; messages: unknown[]; count: number }>(
+    `/chat/history/${conversationId}`,
+  );
+}
+
+// --- Document API ---
+
+export async function searchDocuments(query: string, k = 10) {
+  return apiFetch<{ query: string; results: unknown[]; count: number }>(
+    `/documents/search?q=${encodeURIComponent(query)}&k=${k}`,
+  );
+}
+
+export async function getDocumentStats() {
+  return apiFetch<{ total_chunks: number; table: string; updated_at: string }>(
+    "/documents/stats",
+  );
+}
+
+// --- Upload API ---
 
 export function uploadFile(
   file: File,

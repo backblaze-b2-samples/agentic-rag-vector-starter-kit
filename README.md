@@ -1,12 +1,16 @@
-<!-- last_verified: 2026-03-06 -->
-# Vibe Coding Starter Kit
+<!-- last_verified: 2026-03-10 -->
+# Agentic RAG Vector Starter Kit
 
-Stop wiring boilerplate and start building. This open-source starter kit gives vibe coders and AI coding agents a production-ready foundation — a full-stack TypeScript + Python template with a pre-built dashboard UI, file upload system, and **[Backblaze B2](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=oss-starter)** cloud storage already integrated. Save thousands of tokens on setup prompts, skip the "build me a dashboard from scratch" loop, and go straight to building your app's unique features.
+An open-source starter kit for building production-ready **Agentic RAG** (Retrieval-Augmented Generation) applications. Upload documents, automatically process them into searchable vectors, and chat with your knowledge base using a 9-step agentic retrieval pipeline — all backed by **[Backblaze B2](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=oss-starter)** cloud storage and **LanceDB** vector store.
 
 **What you get out of the box:**
+- ChatGPT/Claude-style chat UI with streaming responses and source citations
+- Document processing pipeline: chunking, classification, summarization, and embedding
+- 9-step agentic retrieval: intent routing, query planning, vector search, RRF fusion, LLM reranking, evidence validation with retry loops
+- LanceDB vector store on B2 (no separate vector DB infrastructure)
+- LangChain orchestration for LLM and embedding calls
+- File upload with drag-and-drop, progress tracking, and RAG processing status
 - Full-stack dashboard UI (Next.js 16 + React 19 + Tailwind v4 + shadcn/ui)
-- File upload with drag-and-drop, progress tracking, and metadata extraction
-- File browser with preview, download, and delete
 - FastAPI backend with strict layered architecture and structural tests
 - Agent-optimized docs — your AI coding agent can read the repo and start contributing immediately
 
@@ -45,7 +49,7 @@ docs/
 | DRY documentation | Each fact lives in one place; no redundant files to drift |
 | Strict layered architecture | `types -> config -> repo -> service -> runtime`, enforced by tests |
 | Prefer boring, composable libraries | stdlib logging over frameworks, Pydantic over ad-hoc validation |
-| Contain external SDKs | `boto3` only in `repo/` layer — verified by structural test |
+| Contain external SDKs | `boto3`, `lancedb`, `langchain*` only in `repo/` — verified by structural tests |
 | Keep files agent-sized | 300-line limit per file, enforced by test |
 | Docs updated with code | Same-PR requirement prevents documentation rot |
 | Structured observability | JSON logging, `/metrics` endpoint, request tracing |
@@ -108,11 +112,22 @@ cp .env.example .env
 Fill in your `.env`:
 
 ```
+# B2 storage (required)
 B2_S3_ENDPOINT=https://s3.us-west-004.backblazeb2.com
 B2_APPLICATION_KEY_ID=your-key-id
 B2_APPLICATION_KEY=your-key
 B2_BUCKET_NAME=your-bucket
+
+# LLM (required for chat, classification, reranking)
+ANTHROPIC_API_KEY=your-anthropic-key
+# LLM_MODEL=claude-sonnet-4-20250514  # optional, default shown
+
+# Embeddings (required for RAG)
+OPENAI_API_KEY=your-openai-key
+# EMBEDDING_MODEL=text-embedding-3-small  # optional, default shown
 ```
+
+See `.env.example` for all options including `LANCEDB_URI`, `CHUNK_SIZE`, and `MAX_CHUNKS_PER_DOC`.
 
 **4. Run it**
 
@@ -120,13 +135,16 @@ B2_BUCKET_NAME=your-bucket
 pnpm dev
 ```
 
-That's it. Frontend at `localhost:3000`, API at `localhost:8000`. Upload a file and see it working.
+That's it. Frontend at `localhost:3000`, API at `localhost:8000`. Upload a document and ask it questions in the Chat page.
 
 For production deployment, see [Railway docs](infra/railway/README.md).
 
 ## Core Features
 
-- [File Upload](docs/features/file-upload.md) — drag-and-drop upload with real-time progress
+- [Chat UI](docs/features/chat.md) — ChatGPT/Claude-style interface with streaming and citations
+- [Agentic Retrieval](docs/features/agentic-retrieval.md) — 9-step RAG pipeline with intent routing, query planning, reranking
+- [Document Pipeline](docs/features/document-pipeline.md) — automatic chunking, classification, summarization, embedding
+- [File Upload](docs/features/file-upload.md) — drag-and-drop upload with real-time progress and RAG processing
 - [File Browser](docs/features/file-browser.md) — list, preview, download, delete files
 - [Dashboard](docs/features/dashboard.md) — stats cards, upload chart, recent uploads
 - [Metadata Extraction](docs/features/metadata-extraction.md) — image dimensions, EXIF, PDF info, checksums
@@ -138,8 +156,10 @@ For production deployment, see [Railway docs](infra/railway/README.md).
 ## Tech Stack
 
 - TypeScript, Next.js 16, React 19, Tailwind v4, shadcn/ui, Recharts
-- Python 3.11+, FastAPI, boto3, Pydantic v2, Pillow, PyPDF2
-- Backblaze B2 (S3-compatible object storage)
+- Python 3.11+, FastAPI, Pydantic v2, Pillow, PyPDF2
+- LanceDB (vector store on S3/B2), LangChain (LLM orchestration)
+- Anthropic Claude (chat, classification, reranking), OpenAI (embeddings)
+- Backblaze B2 (S3-compatible object storage — files + vectors)
 - pnpm workspaces (monorepo)
 
 ## Commands
@@ -162,7 +182,7 @@ For production deployment, see [Railway docs](infra/railway/README.md).
 |-----|---------|
 | [AGENTS.md](AGENTS.md) | Agent table of contents — start here |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System layout, layering, data flows |
-| [docs/features/](docs/features/) | Feature docs (upload, browser, dashboard, metadata) |
+| [docs/features/](docs/features/) | Feature docs (chat, retrieval, pipeline, upload, browser, dashboard) |
 | [docs/app-workflows.md](docs/app-workflows.md) | User journeys |
 | [docs/dev-workflows.md](docs/dev-workflows.md) | Engineering workflows and testing |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security principles |

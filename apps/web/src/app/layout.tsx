@@ -23,8 +23,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "OSS Starter Kit",
-  description: "File management dashboard powered by Backblaze B2",
+  title: "Agentic RAG Starter Kit",
+  description: "Chat with your documents — powered by LanceDB, LangChain, and Backblaze B2",
 };
 
 export default function RootLayout({

@@ -17,6 +17,7 @@ import { Separator } from "@/components/ui/separator";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
+  "/chat": "Chat",
   "/upload": "Upload",
   "/files": "Files",
 };

@@ -1,4 +1,4 @@
-<!-- last_verified: 2026-03-06 -->
+<!-- last_verified: 2026-03-10 -->
 # AGENTS.md
 
 This is the authoritative control surface for all coding agents. Read this first.
@@ -20,6 +20,8 @@ infra/railway/     Deployment config
 
 - No backward imports across layers
 - No `boto3` outside `repo/`
+- No `lancedb` outside `repo/`
+- No `langchain*` SDKs outside `repo/`
 - No business logic in route handlers (`runtime/`)
 - All external APIs wrapped in `repo/` adapters
 - All request/response data validated at boundary (Pydantic models)
@@ -45,6 +47,8 @@ infra/railway/     Deployment config
 |------|-------------|
 | No backward imports | `tests/test_structure.py::test_no_backward_imports` |
 | No boto3 outside repo/ | `tests/test_structure.py::test_boto3_only_in_repo` |
+| No lancedb outside repo/ | `tests/test_structure.py::test_lancedb_only_in_repo` |
+| No langchain outside repo/ | `tests/test_structure.py::test_langchain_only_in_repo` |
 | File size < 300 lines | `tests/test_structure.py::test_file_size_limits` |
 | All layers exist | `tests/test_structure.py::test_all_layers_exist` |
 | No bare print() | `ruff` rule T20 |

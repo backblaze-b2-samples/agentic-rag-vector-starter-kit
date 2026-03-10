@@ -1,10 +1,14 @@
+import logging
 import re
 
 from app.config import settings
 from app.repo import upload_file
 from app.service.metadata import extract_metadata
+from app.service.pipeline import process_document
 from app.types import FileUploadResponse
 from app.types.formatting import humanize_bytes
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_TYPES = {
     "image/jpeg",
@@ -117,6 +121,19 @@ def process_upload(
     key = f"uploads/{safe_name}"
     result = upload_file(file_data, key, content_type)
     metadata = extract_metadata(file_data, safe_name, content_type)
+
+    # Trigger RAG pipeline (chunking, classification, embedding, vector storage)
+    try:
+        pipeline_result = process_document(file_data, key, safe_name, content_type)
+        logger.info(
+            "Pipeline result: doc=%s status=%s chunks=%d",
+            key,
+            pipeline_result.status,
+            pipeline_result.chunk_count,
+        )
+    except Exception:
+        # Pipeline failures don't block the upload response
+        logger.warning("Pipeline failed for %s", key, exc_info=True)
 
     return FileUploadResponse(
         key=result.key,

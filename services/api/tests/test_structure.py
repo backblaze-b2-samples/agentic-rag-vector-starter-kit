@@ -100,3 +100,51 @@ def test_all_layers_exist():
         assert layer_dir.exists(), f"Missing layer directory: app/{layer}/"
         init_file = layer_dir / "__init__.py"
         assert init_file.exists(), f"Missing __init__.py in app/{layer}/"
+
+
+# SDKs that must only be imported in repo/ layer
+_REPO_ONLY_SDKS = {
+    "lancedb": "lancedb",
+    "langchain": "langchain",
+    "langchain_anthropic": "langchain_anthropic",
+    "langchain_openai": "langchain_openai",
+    "langchain_community": "langchain_community",
+    "langchain_core": "langchain_core",
+}
+
+
+def test_lancedb_only_in_repo():
+    """Verify lancedb is only imported in app/repo/."""
+    violations = []
+    for layer in LAYER_ORDER:
+        if layer == "repo":
+            continue
+        layer_dir = APP_ROOT / layer
+        if not layer_dir.exists():
+            continue
+        for pyfile in _get_python_files(layer_dir):
+            for imp in _get_imports(pyfile):
+                if imp == "lancedb" or imp.startswith("lancedb."):
+                    rel = pyfile.relative_to(APP_ROOT.parent)
+                    violations.append(f"{rel}: lancedb imported outside repo/")
+    assert violations == [], "lancedb boundary violations:\n" + "\n".join(violations)
+
+
+def test_langchain_only_in_repo():
+    """Verify langchain SDKs are only imported in app/repo/."""
+    violations = []
+    for layer in LAYER_ORDER:
+        if layer == "repo":
+            continue
+        layer_dir = APP_ROOT / layer
+        if not layer_dir.exists():
+            continue
+        for pyfile in _get_python_files(layer_dir):
+            for imp in _get_imports(pyfile):
+                for sdk_prefix in _REPO_ONLY_SDKS:
+                    if imp == sdk_prefix or imp.startswith(sdk_prefix + "."):
+                        rel = pyfile.relative_to(APP_ROOT.parent)
+                        violations.append(
+                            f"{rel}: {sdk_prefix} imported outside repo/"
+                        )
+    assert violations == [], "langchain boundary violations:\n" + "\n".join(violations)

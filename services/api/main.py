@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
 
 from app.config import settings  # noqa: E402
-from app.runtime import files, health, metrics, upload  # noqa: E402
+from app.runtime import chat, documents, files, health, metrics, upload  # noqa: E402
 
 # --- Structured JSON logging ---
 
@@ -65,4 +65,6 @@ app.add_middleware(BaseHTTPMiddleware, dispatch=metrics.timing_middleware)
 app.include_router(health.router, tags=["health"])
 app.include_router(upload.router, tags=["upload"])
 app.include_router(files.router, tags=["files"])
+app.include_router(documents.router, tags=["documents"])
+app.include_router(chat.router)
 app.include_router(metrics.router, tags=["metrics"])

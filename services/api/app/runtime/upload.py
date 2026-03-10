@@ -42,6 +42,10 @@ async def upload(request: Request, file: UploadFile):
         logger.warning("Upload rejected: %s", e.detail)
         record_upload(success=False)
         raise HTTPException(status_code=e.status_code, detail=e.detail) from None
+    except Exception:
+        logger.exception("Upload failed unexpectedly")
+        record_upload(success=False)
+        raise HTTPException(status_code=503, detail="Storage service unavailable") from None
 
     record_upload(success=True)
     logger.info(

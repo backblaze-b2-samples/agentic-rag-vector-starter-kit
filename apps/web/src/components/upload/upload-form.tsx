@@ -7,13 +7,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dropzone } from "./dropzone";
 import { UploadProgress, type UploadItem } from "./upload-progress";
+import { ProcessingStatus } from "./processing-status";
 import { uploadFile } from "@/lib/api-client";
 import { humanizeBytes } from "@/lib/utils";
 import { useRefresh } from "@/lib/refresh-context";
 
+interface CompletedFile {
+  filename: string;
+  contentType: string;
+}
+
 export function UploadForm() {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [completedFiles, setCompletedFiles] = useState<CompletedFile[]>([]);
   const { triggerRefresh } = useRefresh();
 
   const handleFilesRejected = useCallback((rejections: FileRejection[]) => {
@@ -58,6 +65,10 @@ export function UploadForm() {
             )
           );
           toast.success(`${item.file.name} uploaded successfully`);
+          setCompletedFiles((prev) => [...prev, {
+            filename: item.file.name,
+            contentType: item.file.type || "application/octet-stream",
+          }]);
           anySuccess = true;
         } catch (err) {
           const message =
@@ -100,6 +111,14 @@ export function UploadForm() {
           disabled={uploading}
         />
         <UploadProgress items={items} />
+        {/* RAG processing status for completed uploads */}
+        {completedFiles.length > 0 && (
+          <div className="space-y-1">
+            {completedFiles.map((f, i) => (
+              <ProcessingStatus key={i} filename={f.filename} contentType={f.contentType} />
+            ))}
+          </div>
+        )}
         {hasCompleted && !uploading && (
           <div className="flex justify-end">
             <Button variant="outline" size="sm" onClick={clearCompleted}>
