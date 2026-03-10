@@ -1,9 +1,14 @@
 import type {
+  AgentBehavior,
   ChatRequest,
   ChatResponse,
   DailyUploadCount,
+  DashboardStats,
   FileMetadata,
   FileUploadResponse,
+  IngestionLogEntry,
+  QueryLogEntry,
+  RetrievalQuality,
   UploadStats,
 } from "@vibe-coding-starter-kit/shared";
 
@@ -156,6 +161,28 @@ export async function getDocumentStats() {
   return apiFetch<{ total_chunks: number; table: string; updated_at: string }>(
     "/documents/stats",
   );
+}
+
+// --- Dashboard API ---
+
+export async function getDashboardStats() {
+  return apiFetch<DashboardStats>("/dashboard/stats");
+}
+
+export async function getDashboardQueries(limit = 20) {
+  return apiFetch<QueryLogEntry[]>(`/dashboard/queries?limit=${limit}`);
+}
+
+export async function getDashboardIngestions(limit = 20) {
+  return apiFetch<IngestionLogEntry[]>(`/dashboard/ingestions?limit=${limit}`);
+}
+
+export async function getRetrievalQuality(days = 7) {
+  return apiFetch<RetrievalQuality>(`/dashboard/retrieval-quality?days=${days}`);
+}
+
+export async function getAgentBehavior(days = 7) {
+  return apiFetch<AgentBehavior>(`/dashboard/agent-behavior?days=${days}`);
 }
 
 // --- Upload API ---

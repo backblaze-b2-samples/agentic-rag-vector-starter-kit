@@ -7,12 +7,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from contextlib import asynccontextmanager  # noqa: E402
+
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
 
 from app.config import settings  # noqa: E402
-from app.runtime import chat, documents, files, health, metrics, upload  # noqa: E402
+from app.repo import check_connectivity, check_lancedb_connectivity  # noqa: E402
+from app.runtime import chat, dashboard, documents, files, health, metrics, upload  # noqa: E402
 
 # --- Structured JSON logging ---
 
@@ -43,12 +46,31 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 logger = logging.getLogger("api")
 
 
+# --- Startup checks ---
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Run startup checks for external dependencies."""
+    b2_ok = check_connectivity()
+    lancedb_ok = check_lancedb_connectivity()
+    if b2_ok:
+        logger.info("B2 connectivity check passed")
+    else:
+        logger.error("B2 connectivity check FAILED — uploads and file ops will not work")
+    if lancedb_ok:
+        logger.info("LanceDB connectivity check passed")
+    else:
+        logger.warning("LanceDB connectivity check failed — vector search unavailable until first ingestion")
+    yield
+
+
 # --- App setup ---
 
 app = FastAPI(
-    title="OSS Starter Kit API",
-    description="File upload and management API backed by Backblaze B2",
+    title="Agentic RAG Vector Starter Kit API",
+    description="Agentic RAG pipeline backed by Backblaze B2 and LanceDB",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -67,4 +89,5 @@ app.include_router(upload.router, tags=["upload"])
 app.include_router(files.router, tags=["files"])
 app.include_router(documents.router, tags=["documents"])
 app.include_router(chat.router)
+app.include_router(dashboard.router)
 app.include_router(metrics.router, tags=["metrics"])

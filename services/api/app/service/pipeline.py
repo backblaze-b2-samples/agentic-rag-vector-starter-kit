@@ -7,7 +7,7 @@ import hashlib
 import logging
 from datetime import UTC, datetime
 
-from app.repo import add_chunks, delete_doc_chunks
+from app.repo import add_chunks, delete_doc_chunks, log_ingestion
 from app.service.chunker import chunk_document
 from app.service.classifier import classify_document
 from app.service.embedder import embed_chunks
@@ -15,6 +15,23 @@ from app.service.summarizer import summarize_chunk, summarize_document
 from app.types import DocumentClassification, DocumentStatus, ProcessedDocument
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_log_ingestion(
+    doc_id: str, filename: str, status: str,
+    chunk_count: int, total_tokens: int, classification: str,
+    error_message: str | None,
+) -> None:
+    """Log ingestion to SQLite for dashboard. Non-blocking on failure."""
+    try:
+        log_ingestion(
+            doc_id=doc_id, filename=filename, status=status,
+            chunk_count=chunk_count, total_tokens=total_tokens,
+            classification=classification, error_message=error_message,
+        )
+    except Exception:
+        logger.warning("Failed to log ingestion metrics", exc_info=True)
+
 
 # Content types that support text extraction and chunking
 PROCESSABLE_TYPES = {
@@ -132,6 +149,12 @@ def process_document(
             classification.value,
         )
 
+        # Log successful ingestion for dashboard
+        _safe_log_ingestion(
+            doc_id, filename, "completed",
+            len(lancedb_records), total_tokens, classification.value, None,
+        )
+
         return ProcessedDocument(
             doc_id=doc_id,
             filename=filename,
@@ -145,6 +168,8 @@ def process_document(
 
     except Exception as e:
         logger.exception("Pipeline failed for %s: %s", filename, e)
+        # Log failed ingestion for dashboard
+        _safe_log_ingestion(doc_id, filename, "failed", 0, 0, "general", str(e))
         return ProcessedDocument(
             doc_id=doc_id,
             filename=filename,

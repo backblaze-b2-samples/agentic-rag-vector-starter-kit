@@ -44,3 +44,8 @@ coverage/
 
 # B2 / AWS
 .aws/
+
+# SQLite databases
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

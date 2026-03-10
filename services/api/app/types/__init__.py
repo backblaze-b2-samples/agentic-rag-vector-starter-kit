@@ -6,6 +6,13 @@ from app.types.chat import (
     MessageRole,
     RetrievalInfo,
 )
+from app.types.dashboard import (
+    AgentBehavior,
+    DashboardStats,
+    IngestionLogEntry,
+    QueryLogEntry,
+    RetrievalQuality,
+)
 from app.types.documents import (
     DocumentChunk,
     DocumentClassification,
@@ -25,15 +32,17 @@ from app.types.retrieval import (
     RetrievalRoute,
 )
 from app.types.stats import DailyUploadCount, UploadStats
-from app.types.upload import FileUploadResponse
+from app.types.upload import FileUploadResponse, PipelineResult
 
 __all__ = [
+    "AgentBehavior",
     "CandidateChunk",
     "ChatMessage",
     "ChatRequest",
     "ChatResponse",
     "Citation",
     "DailyUploadCount",
+    "DashboardStats",
     "DocumentChunk",
     "DocumentClassification",
     "DocumentStatus",
@@ -41,15 +50,19 @@ __all__ = [
     "FileMetadata",
     "FileMetadataDetail",
     "FileUploadResponse",
+    "IngestionLogEntry",
     "IntentClassification",
     "MessageRole",
+    "PipelineResult",
     "ProcessedDocument",
     "ProcessingStatusResponse",
+    "QueryLogEntry",
     "QueryPlan",
     "QueryVariant",
     "RankedEvidence",
     "RetrievalInfo",
     "RetrievalMetrics",
+    "RetrievalQuality",
     "RetrievalRoute",
     "UploadStats",
 ]

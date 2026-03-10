@@ -9,6 +9,7 @@ from app.repo.b2_client import (
 )
 from app.repo.lancedb_client import (
     add_chunks,
+    check_lancedb_connectivity,
     delete_doc_chunks,
     get_chunks_by_doc,
     get_table_stats,
@@ -20,22 +21,41 @@ from app.repo.llm_client import (
     generate_embeddings,
     generate_query_embedding,
 )
+from app.repo.query_log import (
+    get_agent_behavior,
+    get_last_ingestion_ts,
+    get_query_stats,
+    get_recent_ingestions,
+    get_recent_queries,
+    get_retrieval_quality,
+    log_ingestion,
+    log_query,
+)
 
 __all__ = [
     "add_chunks",
     "chat_completion",
     "chat_completion_stream",
     "check_connectivity",
+    "check_lancedb_connectivity",
     "delete_doc_chunks",
     "delete_file",
     "generate_embeddings",
     "generate_query_embedding",
+    "get_agent_behavior",
     "get_chunks_by_doc",
     "get_file_metadata",
+    "get_last_ingestion_ts",
     "get_presigned_url",
+    "get_query_stats",
+    "get_recent_ingestions",
+    "get_recent_queries",
+    "get_retrieval_quality",
     "get_table_stats",
     "get_upload_stats",
     "list_files",
+    "log_ingestion",
+    "log_query",
     "search_vectors",
     "upload_file",
 ]

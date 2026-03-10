@@ -34,6 +34,15 @@ export interface FileMetadataDetail {
   bitrate: number | null;
 }
 
+export interface PipelineResult {
+  status: "completed" | "failed" | "skipped";
+  classification: string;
+  summary: string;
+  chunk_count: number;
+  total_tokens: number;
+  error_message: string | null;
+}
+
 export interface FileUploadResponse {
   key: string;
   filename: string;
@@ -43,6 +52,7 @@ export interface FileUploadResponse {
   uploaded_at: string;
   url: string | null;
   metadata: FileMetadataDetail | null;
+  pipeline: PipelineResult | null;
 }
 
 export interface DailyUploadCount {
@@ -139,4 +149,62 @@ export interface RetrievalInfo {
   evidence_used: number;
   retrieval_loops: number;
   latency_ms: number;
+}
+
+// --- Dashboard types ---
+
+export interface DashboardStats {
+  total_queries: number;
+  queries_today: number;
+  queries_7d: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+  avg_top1_score: number | null;
+  pct_below_threshold: number;
+  kb_only_count: number;
+  no_retrieval_count: number;
+  total_documents: number;
+  total_chunks: number;
+  last_ingestion_ts: string | null;
+}
+
+export interface QueryLogEntry {
+  id: number;
+  ts: string;
+  query: string;
+  route: string;
+  queries_generated: number;
+  total_candidates: number;
+  evidence_count: number;
+  retrieval_loops: number;
+  latency_ms: number;
+  top1_score: number | null;
+  is_sufficient: boolean;
+}
+
+export interface IngestionLogEntry {
+  id: number;
+  ts: string;
+  doc_id: string;
+  filename: string;
+  status: string;
+  chunk_count: number;
+  total_tokens: number;
+  classification: string;
+  error_message: string | null;
+}
+
+export interface RetrievalQuality {
+  avg_top1_score: number | null;
+  pct_below_threshold: number;
+  avg_evidence_count: number;
+  total_evaluated: number;
+}
+
+export interface AgentBehavior {
+  total_queries: number;
+  kb_only_rate: number;
+  retry_loop_rate: number;
+  avg_queries_generated: number;
+  sufficient_rate: number;
 }

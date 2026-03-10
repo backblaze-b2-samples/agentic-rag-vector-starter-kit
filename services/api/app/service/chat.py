@@ -5,7 +5,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from app.repo import chat_completion, chat_completion_stream, get_presigned_url
+from app.repo import chat_completion, chat_completion_stream, get_presigned_url, log_query
 from app.service.retrieval import retrieve
 from app.types import (
     ChatMessage,
@@ -41,6 +41,28 @@ Evidence:
 _CONVERSATIONAL_PROMPT = """You are a helpful assistant for a document knowledge base.
 Respond naturally to conversational messages. Be concise and friendly.
 If the user seems to be asking about documents, suggest they ask a specific question."""
+
+
+def _log_query_metrics(query: str, evidence_set, metrics) -> None:
+    """Log query metrics to SQLite for dashboard. Non-blocking on failure."""
+    try:
+        scores = [ev.relevance_score for ev in evidence_set.evidence if ev.relevance_score is not None]
+        log_query(
+            query=query,
+            route=metrics.route,
+            queries_generated=metrics.queries_generated,
+            total_candidates=metrics.total_candidates,
+            post_fusion_candidates=metrics.post_fusion_candidates,
+            post_rerank_count=metrics.post_rerank_count,
+            evidence_count=metrics.evidence_count,
+            retrieval_loops=metrics.retrieval_loops,
+            latency_ms=metrics.latency_ms,
+            top1_score=scores[0] if scores else None,
+            top5_scores=scores[:5],
+            is_sufficient=evidence_set.is_sufficient,
+        )
+    except Exception:
+        logger.warning("Failed to log query metrics", exc_info=True)
 
 
 def _build_citations(evidence_set) -> list[Citation]:
@@ -108,6 +130,7 @@ def handle_chat(request: ChatRequest) -> ChatResponse:
 
     # Run retrieval (Step 8: context construction happens here)
     evidence_set, metrics = retrieve(request.message)
+    _log_query_metrics(request.message, evidence_set, metrics)
 
     # Generate grounded answer
     if metrics.route == "no_retrieval":
@@ -180,6 +203,7 @@ def handle_chat_stream(request: ChatRequest):
 
     # Run retrieval
     evidence_set, metrics = retrieve(request.message)
+    _log_query_metrics(request.message, evidence_set, metrics)
 
     # Send metadata event
     retrieval_info = RetrievalInfo(

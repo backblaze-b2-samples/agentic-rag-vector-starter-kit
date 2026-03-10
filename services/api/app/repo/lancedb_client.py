@@ -5,6 +5,7 @@ All lancedb SDK usage is confined to this module.
 
 import functools
 import logging
+import os
 import re
 from datetime import UTC, datetime
 
@@ -14,6 +15,16 @@ import pyarrow as pa
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# LanceDB's S3 client reads AWS_* env vars. Map B2 credentials so lance can auth.
+if settings.b2_application_key_id and not os.environ.get("AWS_ACCESS_KEY_ID"):
+    os.environ["AWS_ACCESS_KEY_ID"] = settings.b2_application_key_id
+    os.environ["AWS_SECRET_ACCESS_KEY"] = settings.b2_application_key
+    os.environ["AWS_ENDPOINT"] = settings.b2_s3_endpoint
+    os.environ["AWS_DEFAULT_REGION"] = "us-west-004"
+    # lance requires opt-in for path-style access (B2 uses virtual-hosted style,
+    # but setting this avoids DNS issues in some environments)
+    os.environ.setdefault("AWS_S3_ALLOW_UNSAFE_RENAME", "true")
 
 # Schema for the document_chunks table
 CHUNKS_TABLE = "document_chunks"
@@ -68,7 +79,7 @@ def get_db():
 def ensure_table_exists() -> None:
     """Create the chunks table if it doesn't exist."""
     db = get_db()
-    existing = db.table_names()
+    existing = db.list_tables()
     if CHUNKS_TABLE not in existing:
         db.create_table(CHUNKS_TABLE, schema=CHUNKS_SCHEMA)
         logger.info("Created LanceDB table", extra={"table": CHUNKS_TABLE})
@@ -155,3 +166,14 @@ def get_table_stats() -> dict:
         "table": CHUNKS_TABLE,
         "updated_at": datetime.now(UTC).isoformat(),
     }
+
+
+def check_lancedb_connectivity() -> bool:
+    """Check if LanceDB is reachable by listing tables."""
+    try:
+        db = get_db()
+        db.list_tables()
+        return True
+    except Exception:
+        logger.warning("LanceDB connectivity check failed", exc_info=True)
+        return False

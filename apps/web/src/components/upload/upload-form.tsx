@@ -11,10 +11,12 @@ import { ProcessingStatus } from "./processing-status";
 import { uploadFile } from "@/lib/api-client";
 import { humanizeBytes } from "@/lib/utils";
 import { useRefresh } from "@/lib/refresh-context";
+import type { PipelineResult } from "@vibe-coding-starter-kit/shared";
 
 interface CompletedFile {
   filename: string;
   contentType: string;
+  pipeline: PipelineResult | null;
 }
 
 export function UploadForm() {
@@ -50,7 +52,7 @@ export function UploadForm() {
       let anySuccess = false;
       for (const item of newItems) {
         try {
-          await uploadFile(item.file, (percent) => {
+          const response = await uploadFile(item.file, (percent) => {
             setItems((prev) =>
               prev.map((i) =>
                 i.id === item.id ? { ...i, progress: percent } : i
@@ -68,6 +70,7 @@ export function UploadForm() {
           setCompletedFiles((prev) => [...prev, {
             filename: item.file.name,
             contentType: item.file.type || "application/octet-stream",
+            pipeline: response.pipeline ?? null,
           }]);
           anySuccess = true;
         } catch (err) {
@@ -115,7 +118,7 @@ export function UploadForm() {
         {completedFiles.length > 0 && (
           <div className="space-y-1">
             {completedFiles.map((f, i) => (
-              <ProcessingStatus key={i} filename={f.filename} contentType={f.contentType} />
+              <ProcessingStatus key={i} filename={f.filename} contentType={f.contentType} pipeline={f.pipeline} />
             ))}
           </div>
         )}
