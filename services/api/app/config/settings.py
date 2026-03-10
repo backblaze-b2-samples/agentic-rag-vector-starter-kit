@@ -15,14 +15,14 @@ class Settings(BaseSettings):
     # Upload limits
     max_file_size: int = 100 * 1024 * 1024  # 100MB
 
-    # LLM (Anthropic for chat/classification/reranking)
-    anthropic_api_key: str = ""
-    llm_model: str = "claude-sonnet-4-20250514"
-
-    # Embeddings
-    embedding_provider: str = "openai"  # "openai" or "huggingface"
-    embedding_model: str = "text-embedding-3-small"
+    # LLM provider: "openai" (default, one key for everything) or "anthropic"
+    llm_provider: str = "openai"
+    llm_model: str = "gpt-4o"
     openai_api_key: str = ""
+    anthropic_api_key: str = ""  # only needed if llm_provider=anthropic
+
+    # Embeddings (uses OpenAI regardless of llm_provider)
+    embedding_model: str = "text-embedding-3-small"
 
     # LanceDB (S3-backed vector store)
     lancedb_uri: str = ""  # e.g. s3://bucket/lancedb/ or local path

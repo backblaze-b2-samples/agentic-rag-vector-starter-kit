@@ -115,8 +115,8 @@ services/api/
 ## External Services
 
 - **Backblaze B2 S3 API** — file storage, retrieval, deletion, presigned URLs
-- **Anthropic API** — chat, classification, reranking, evidence validation
-- **OpenAI API** — text embeddings (configurable)
+- **OpenAI API** (default): chat, classification, reranking, embeddings (one key for everything)
+- **Anthropic API** (optional): chat, classification, reranking (set `LLM_PROVIDER=anthropic`)
 
 ## Trust Boundaries
 

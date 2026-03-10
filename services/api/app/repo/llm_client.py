@@ -1,14 +1,14 @@
 """LLM repo layer — LangChain wrapper for embeddings and chat.
 
 All langchain SDK usage is confined to this module.
+Supports OpenAI (default, one key for everything) and Anthropic (chat only).
 """
 
 import functools
 import logging
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from app.config import settings
 
@@ -17,21 +17,28 @@ logger = logging.getLogger(__name__)
 
 @functools.lru_cache(maxsize=1)
 def get_embeddings_model():
-    """Return configured embedding model instance."""
-    if settings.embedding_provider == "openai":
-        return OpenAIEmbeddings(
-            model=settings.embedding_model,
-            openai_api_key=settings.openai_api_key,
-        )
-    raise ValueError(f"Unsupported embedding provider: {settings.embedding_provider}")
+    """Return configured embedding model (always OpenAI)."""
+    return OpenAIEmbeddings(
+        model=settings.embedding_model,
+        openai_api_key=settings.openai_api_key,
+    )
 
 
 @functools.lru_cache(maxsize=1)
 def get_chat_model():
-    """Return configured chat LLM instance."""
-    return ChatAnthropic(
+    """Return configured chat LLM based on llm_provider setting."""
+    if settings.llm_provider == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+
+        return ChatAnthropic(
+            model=settings.llm_model,
+            anthropic_api_key=settings.anthropic_api_key,
+            max_tokens=4096,
+        )
+    # Default: OpenAI (same key as embeddings)
+    return ChatOpenAI(
         model=settings.llm_model,
-        anthropic_api_key=settings.anthropic_api_key,
+        openai_api_key=settings.openai_api_key,
         max_tokens=4096,
     )
 
@@ -69,7 +76,7 @@ def chat_completion(
         HumanMessage(content=user_message),
     ]
     response = model.invoke(messages, temperature=temperature)
-    # response.content can be a list of content blocks; extract text
+    # response.content can be a list of content blocks (Anthropic); extract text
     content = response.content
     if isinstance(content, list):
         return "".join(

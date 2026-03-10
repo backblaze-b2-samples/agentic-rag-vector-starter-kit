@@ -3,14 +3,14 @@
 
 A production-ready **agentic RAG starter kit** and **retrieval-augmented generation template** for building AI-powered document Q&A applications. Upload documents, automatically chunk, classify, summarize, and embed them into vectors, then chat with your knowledge base using a multi-step agentic retrieval pipeline with citations.
 
-Built on **[Backblaze B2](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=oss-starter)** cloud storage, **LanceDB** vector database, **LangChain**, and **Anthropic Claude**.
+Built on **[Backblaze B2](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=oss-starter)** cloud storage, **LanceDB** vector database, and **LangChain**. Works with **OpenAI** (one key for everything) or **Anthropic Claude** for chat.
 
 **What you get out of the box:**
 - **Chat UI with RAG citations**: ChatGPT/Claude-style interface with streaming responses and clickable source references
 - **Document processing pipeline**: automatic chunking, classification, summarization, and embedding on upload
 - **9-step agentic retrieval**: intent routing, query planning, multi-query vector search, Reciprocal Rank Fusion, LLM reranking, evidence validation with retry loops
 - **LanceDB vector store on S3/B2**: no separate vector database infrastructure to manage
-- **LangChain orchestration**: pluggable LLM and embedding providers (Anthropic Claude, OpenAI)
+- **LangChain orchestration**: pluggable LLM providers (OpenAI default, Anthropic optional), one API key to start
 - **File management**: drag-and-drop upload with progress tracking, file browser, and dashboard
 - **Full-stack**: Next.js 16 + React 19 + Tailwind v4 + shadcn/ui frontend, FastAPI + Pydantic backend
 - **Strict layered architecture**: enforced by structural tests, lints, and SDK containment rules
@@ -120,13 +120,18 @@ B2_APPLICATION_KEY_ID=your-key-id
 B2_APPLICATION_KEY=your-key
 B2_BUCKET_NAME=your-bucket
 
-# LLM (required for chat, classification, reranking)
-ANTHROPIC_API_KEY=your-anthropic-key
-# LLM_MODEL=claude-sonnet-4-20250514  # optional, default shown
-
-# Embeddings (required for RAG)
+# LLM + Embeddings: one API key for everything (default: OpenAI)
 OPENAI_API_KEY=your-openai-key
-# EMBEDDING_MODEL=text-embedding-3-small  # optional, default shown
+```
+
+That's the minimum. By default, OpenAI handles both chat (gpt-4o) and embeddings (text-embedding-3-small).
+
+To use Anthropic Claude for chat instead, add:
+
+```
+ANTHROPIC_API_KEY=your-anthropic-key
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-sonnet-4-20250514
 ```
 
 See `.env.example` for all options including `LANCEDB_URI`, `CHUNK_SIZE`, and `MAX_CHUNKS_PER_DOC`.
@@ -160,7 +165,7 @@ For production deployment, see [Railway docs](infra/railway/README.md).
 - TypeScript, Next.js 16, React 19, Tailwind v4, shadcn/ui, Recharts
 - Python 3.11+, FastAPI, Pydantic v2, Pillow, PyPDF2
 - LanceDB (vector store on S3/B2), LangChain (LLM orchestration)
-- Anthropic Claude (chat, classification, reranking), OpenAI (embeddings)
+- OpenAI (default for chat + embeddings) or Anthropic Claude (optional for chat)
 - Backblaze B2 (S3-compatible object storage for files + vectors)
 - pnpm workspaces (monorepo)
 

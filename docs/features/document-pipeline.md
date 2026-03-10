@@ -36,7 +36,7 @@ Non-text files (images, audio, video) get uploaded to B2 but skip the pipeline.
 
 ## Classification
 
-LLM-based (Anthropic Claude) classification into: policy, procedure, reference, tutorial, faq, troubleshooting, api_docs, general. Falls back to `general` on error.
+LLM-based classification into: policy, procedure, reference, tutorial, faq, troubleshooting, api_docs, general. Uses the configured LLM provider (OpenAI default, Anthropic optional). Falls back to `general` on error.
 
 ## Embedding
 
