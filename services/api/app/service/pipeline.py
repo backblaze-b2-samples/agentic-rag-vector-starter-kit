@@ -1,6 +1,6 @@
 """Document processing pipeline — orchestrates the full ingestion flow.
 
-Flow: extract text → classify → chunk → summarize → embed → store in LanceDB.
+Flow: chunk → classify → summarize → embed → store in LanceDB.
 """
 
 import hashlib

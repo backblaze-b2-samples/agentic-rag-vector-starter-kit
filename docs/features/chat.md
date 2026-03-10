@@ -50,8 +50,8 @@ Frontend connects via `POST /chat/stream`. Events arrive in order:
 
 ## API Integration
 
-- `streamChatMessage()` — SSE streaming via fetch ReadableStream
-- `sendChatMessage()` — non-streaming fallback (POST /chat)
+- `streamChatMessage()` — SSE streaming via fetch ReadableStream (used by chat UI)
+- `sendChatMessage()` — non-streaming POST /chat (exported for programmatic use)
 - `getChatHistory()` — retrieve past conversation
 - `searchDocuments()` — direct semantic search
 - `getDocumentStats()` — vector store stats

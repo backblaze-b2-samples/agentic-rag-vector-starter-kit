@@ -14,7 +14,7 @@ User question
   → Step 3: Query planning (2-5 variants: semantic, keyword, identifier)
   → Step 4: Candidate retrieval (vector search per variant, k=30 each)
   → Step 5: Fusion + dedup (RRF scoring, top 40)
-  → Step 6: Reranking (LLM relevance judge, top 12) — reranker.py
+  → Step 6: Reranking (LLM scores top 20 candidates, keeps top 12) — reranker.py
   → Step 7: Evidence validation + gap handling (max 2 loops) — reranker.py
   → Step 8: Context construction (in chat.py)
   → Step 9: Metrics logging

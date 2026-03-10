@@ -74,12 +74,12 @@ cd my-cool-app
 **Option 2: Clone and reinitialize**
 
 ```bash
-git clone https://github.com/backblaze-b2-samples/vibe-coding-starter-kit.git my-cool-app
-cd my-cool-app
+git clone https://github.com/backblaze-b2-samples/agentic-rag-vector-starter-kit.git my-rag-app
+cd my-rag-app
 rm -rf .git
 git init
 git add .
-git commit -m "Initial commit from vibe-coding-starter-kit"
+git commit -m "Initial commit from agentic-rag-vector-starter-kit"
 ```
 
 Either way you get a clean project with no upstream history — ready to push to your own repo and point your agent at it.
