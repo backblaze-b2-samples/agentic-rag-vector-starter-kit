@@ -1,11 +1,11 @@
 """Types for the agentic retrieval pipeline."""
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 
-class RetrievalRoute(str, Enum):
+class RetrievalRoute(StrEnum):
     """How the agent should handle this request."""
     kb_only = "kb_only"
     no_retrieval = "no_retrieval"

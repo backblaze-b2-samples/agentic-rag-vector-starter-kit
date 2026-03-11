@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS ingestions (
     ts TEXT NOT NULL, doc_id TEXT NOT NULL, filename TEXT NOT NULL,
     status TEXT NOT NULL, chunk_count INTEGER NOT NULL,
     total_tokens INTEGER NOT NULL, classification TEXT NOT NULL,
-    error_message TEXT
+    error_message TEXT, summary TEXT DEFAULT ''
 )
 """
 
@@ -49,7 +49,7 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def _init_db() -> None:
-    """Create tables if they don't exist (idempotent)."""
+    """Create tables if they don't exist, run migrations (idempotent)."""
     global _initialized
     if _initialized:
         return
@@ -58,6 +58,18 @@ def _init_db() -> None:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute(_QUERIES_SCHEMA)
         conn.execute(_INGESTIONS_SCHEMA)
+        # Migrations (idempotent)
+        ing_cols = {r[1] for r in conn.execute("PRAGMA table_info(ingestions)").fetchall()}
+        if "summary" not in ing_cols:
+            conn.execute("ALTER TABLE ingestions ADD COLUMN summary TEXT DEFAULT ''")
+        # RAGAS evaluation columns
+        q_cols = {r[1] for r in conn.execute("PRAGMA table_info(queries)").fetchall()}
+        if "faithfulness" not in q_cols:
+            conn.execute("ALTER TABLE queries ADD COLUMN faithfulness REAL")
+        if "context_precision" not in q_cols:
+            conn.execute("ALTER TABLE queries ADD COLUMN context_precision REAL")
+        if "session_id" not in q_cols:
+            conn.execute("ALTER TABLE queries ADD COLUMN session_id TEXT")
         conn.commit()
         _initialized = True
     finally:
@@ -91,33 +103,35 @@ def log_query(
     post_fusion_candidates: int, post_rerank_count: int, evidence_count: int,
     retrieval_loops: int, latency_ms: float, top1_score: float | None,
     top5_scores: list[float], is_sufficient: bool,
+    session_id: str | None = None,
 ) -> None:
     """Insert a query log record."""
     _exec_write(
         """INSERT INTO queries
            (ts, query, route, queries_generated, total_candidates,
             post_fusion_candidates, post_rerank_count, evidence_count,
-            retrieval_loops, latency_ms, top1_score, top5_scores, is_sufficient)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            retrieval_loops, latency_ms, top1_score, top5_scores, is_sufficient, session_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (datetime.now(UTC).isoformat(), query, route, queries_generated,
          total_candidates, post_fusion_candidates, post_rerank_count,
          evidence_count, retrieval_loops, latency_ms, top1_score,
-         json.dumps(top5_scores), 1 if is_sufficient else 0),
+         json.dumps(top5_scores), 1 if is_sufficient else 0, session_id),
     )
 
 
 def log_ingestion(
     doc_id: str, filename: str, status: str, chunk_count: int,
     total_tokens: int, classification: str, error_message: str | None,
+    summary: str = "",
 ) -> None:
     """Insert an ingestion log record."""
     _exec_write(
         """INSERT INTO ingestions
            (ts, doc_id, filename, status, chunk_count,
-            total_tokens, classification, error_message)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            total_tokens, classification, error_message, summary)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (datetime.now(UTC).isoformat(), doc_id, filename, status,
-         chunk_count, total_tokens, classification, error_message),
+         chunk_count, total_tokens, classification, error_message, summary),
     )
 
 
@@ -136,7 +150,7 @@ def get_recent_ingestions(limit: int = 20) -> list[dict]:
     """Return the most recent ingestion log entries."""
     rows = _exec_read(
         """SELECT id, ts, doc_id, filename, status, chunk_count,
-                  total_tokens, classification, error_message
+                  total_tokens, classification, error_message, summary
            FROM ingestions ORDER BY id DESC LIMIT ?""", (limit,),
     )
     return [dict(r) for r in rows]
@@ -222,6 +236,23 @@ def get_agent_behavior(days: int = 7) -> dict:
         "avg_queries_generated": round(avg_qg, 1),
         "sufficient_rate": round(sufficient / total, 3),
     }
+
+
+def update_eval_scores(
+    query_ts: str, faithfulness: float | None, context_precision: float | None,
+) -> None:
+    """Update RAGAS evaluation scores for the most recent query matching ts."""
+    _init_db()
+    with _write_lock:
+        conn = _get_conn()
+        try:
+            conn.execute(
+                "UPDATE queries SET faithfulness = ?, context_precision = ? WHERE ts = ?",
+                (faithfulness, context_precision, query_ts),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
 
 def get_last_ingestion_ts() -> str | None:

@@ -133,7 +133,8 @@ export interface ChatMessage {
 
 export interface ChatRequest {
   message: string;
-  conversation_id: string | null;
+  conversation_id?: string | null;
+  session_id?: string | null;
 }
 
 export interface ChatResponse {
@@ -192,6 +193,7 @@ export interface IngestionLogEntry {
   total_tokens: number;
   classification: string;
   error_message: string | null;
+  summary: string;
 }
 
 export interface RetrievalQuality {
@@ -201,10 +203,55 @@ export interface RetrievalQuality {
   total_evaluated: number;
 }
 
+// --- Chat session types ---
+
+export interface ChatSession {
+  session_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
 export interface AgentBehavior {
   total_queries: number;
   kb_only_rate: number;
   retry_loop_rate: number;
   avg_queries_generated: number;
   sufficient_rate: number;
+}
+
+// --- Session analytics types (dashboard drill-down) ---
+
+export interface SessionSummary {
+  session_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  avg_faithfulness: number | null;
+  avg_context_precision: number | null;
+  avg_latency_ms: number | null;
+  total_queries: number;
+}
+
+export interface SessionMessageDetail {
+  id: number;
+  role: string;
+  content: string;
+  timestamp: string | null;
+  citations: Citation[];
+  retrieval_metadata: RetrievalInfo | null;
+  faithfulness: number | null;
+  context_precision: number | null;
+  route: string | null;
+  latency_ms: number | null;
+  evidence_count: number | null;
+}
+
+// --- Pipeline step events (live streaming) ---
+
+export interface PipelineStep {
+  label: string;
+  status: "active" | "done";
 }

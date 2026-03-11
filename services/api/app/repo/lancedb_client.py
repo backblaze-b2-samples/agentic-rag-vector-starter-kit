@@ -16,15 +16,19 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# LanceDB's S3 client reads AWS_* env vars. Map B2 credentials so lance can auth.
+# LanceDB reads AWS_* env vars for S3 auth. Map B2 credentials so lance can
+# connect to B2's S3-compatible API. AWS_S3_ALLOW_UNSAFE_RENAME bypasses
+# conditional PUTs (If-None-Match) which B2 does not support.
 if settings.b2_application_key_id and not os.environ.get("AWS_ACCESS_KEY_ID"):
     os.environ["AWS_ACCESS_KEY_ID"] = settings.b2_application_key_id
     os.environ["AWS_SECRET_ACCESS_KEY"] = settings.b2_application_key
-    os.environ["AWS_ENDPOINT"] = settings.b2_s3_endpoint
-    os.environ["AWS_DEFAULT_REGION"] = "us-west-004"
-    # lance requires opt-in for path-style access (B2 uses virtual-hosted style,
-    # but setting this avoids DNS issues in some environments)
-    os.environ.setdefault("AWS_S3_ALLOW_UNSAFE_RENAME", "true")
+    os.environ["AWS_DEFAULT_REGION"] = settings.b2_s3_endpoint.split("//s3.")[1].split(".")[0] if "//s3." in settings.b2_s3_endpoint else "us-west-004"
+    os.environ["AWS_ENDPOINT_URL"] = settings.b2_s3_endpoint
+    os.environ["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
+    logger.info(
+        "B2→AWS env mapped: region=%s endpoint=%s",
+        os.environ["AWS_DEFAULT_REGION"], os.environ["AWS_ENDPOINT_URL"],
+    )
 
 # Schema for the document_chunks table
 CHUNKS_TABLE = "document_chunks"
@@ -68,50 +72,104 @@ def _sanitize_field_name(field: str) -> str:
     return field
 
 
+def _table_exists() -> bool:
+    """Check if the chunks table exists in LanceDB."""
+    db = get_db()
+    return CHUNKS_TABLE in db.table_names()
+
+
 @functools.lru_cache(maxsize=1)
 def get_db():
     """Connect to LanceDB using configured URI (S3/B2 or local)."""
     uri = settings.lancedb_storage_uri
-    logger.info("Connecting to LanceDB", extra={"uri": uri})
-    return lancedb.connect(uri)
+    logger.info("Connecting to LanceDB at %s", uri)
+    db = lancedb.connect(uri)
+    tables = db.table_names()
+    logger.info("LanceDB connected, existing tables: %s", tables)
+    return db
 
 
-def ensure_table_exists() -> None:
-    """Create the chunks table if it doesn't exist."""
+def ensure_tables_ready() -> None:
+    """Startup check: ensure the chunks table exists and is accessible.
+
+    On S3/B2 backends, empty-schema tables can be left in a broken state.
+    This function verifies the table is usable, drops it if corrupt, and
+    recreates it with the correct schema + a seed row (then deletes the row).
+    """
     db = get_db()
-    existing = db.list_tables()
-    if CHUNKS_TABLE not in existing:
-        db.create_table(CHUNKS_TABLE, schema=CHUNKS_SCHEMA)
-        logger.info("Created LanceDB table", extra={"table": CHUNKS_TABLE})
+    if CHUNKS_TABLE in db.table_names():
+        # Table exists — verify we can actually open and read it
+        try:
+            table = db.open_table(CHUNKS_TABLE)
+            table.count_rows()
+            logger.info("LanceDB table '%s' is ready", CHUNKS_TABLE)
+            return
+        except Exception:
+            logger.warning(
+                "LanceDB table '%s' exists but is broken — dropping and recreating",
+                CHUNKS_TABLE, exc_info=True,
+            )
+            db.drop_table(CHUNKS_TABLE)
+
+    # Create table with a seed row (empty-schema creates don't persist on S3)
+    logger.info("Creating LanceDB table '%s' with seed data", CHUNKS_TABLE)
+    seed = pa.table(
+        {
+            "chunk_id": ["__seed__"],
+            "doc_id": ["__seed__"],
+            "doc_title": [""],
+            "section_path": [""],
+            "text": [""],
+            "summary": [""],
+            "classification": ["general"],
+            "chunk_index": pa.array([0], type=pa.int32()),
+            "total_chunks": pa.array([0], type=pa.int32()),
+            "source_filename": [""],
+            "source_content_type": [""],
+            "source_page": pa.array([0], type=pa.int32()),
+            "token_count": pa.array([0], type=pa.int32()),
+            "updated_at": [""],
+            "vector": [([0.0] * EMBEDDING_DIM)],
+        },
+        schema=CHUNKS_SCHEMA,
+    )
+    table = db.create_table(CHUNKS_TABLE, seed)
+    # Remove the seed row so the table is empty but structurally valid
+    table.delete("chunk_id = '__seed__'")
+    # Verify it's accessible
+    count = table.count_rows()
+    logger.info("LanceDB table '%s' created and verified (rows=%d)", CHUNKS_TABLE, count)
 
 
 def add_chunks(chunks: list[dict]) -> int:
     """Insert document chunks with embeddings into LanceDB.
 
-    Each dict must have all CHUNKS_SCHEMA fields including 'vector'.
-    Returns number of chunks inserted.
+    Creates the table on first insert (empty-schema tables don't persist
+    reliably on S3 backends like B2). Returns number of chunks inserted.
     """
     if not chunks:
         return 0
     db = get_db()
-    ensure_table_exists()
-    table = db.open_table(CHUNKS_TABLE)
-    table.add(chunks)
-    logger.info("Added chunks to LanceDB", extra={"count": len(chunks)})
+    if _table_exists():
+        table = db.open_table(CHUNKS_TABLE)
+        table.add(chunks)
+    else:
+        # First insert — create table with data (works reliably on S3/B2)
+        logger.info("Creating LanceDB table with first %d chunks", len(chunks))
+        db.create_table(CHUNKS_TABLE, chunks)
+    logger.info("Stored %d chunks in LanceDB", len(chunks))
     return len(chunks)
 
 
 def search_vectors(
     query_vector: list[float], k: int = 20, filters: dict | None = None
 ) -> list[dict]:
-    """Run kNN vector search on document chunks.
-
-    Returns list of dicts with chunk fields + _distance score.
-    """
+    """Run kNN vector search on document chunks."""
+    if not _table_exists():
+        logger.info("No chunks table yet — returning empty search results")
+        return []
     db = get_db()
-    ensure_table_exists()
     table = db.open_table(CHUNKS_TABLE)
-
     query = table.search(query_vector).limit(k)
 
     # Apply optional metadata filters (sanitized to prevent injection)
@@ -124,41 +182,45 @@ def search_vectors(
         if where_clauses:
             query = query.where(" AND ".join(where_clauses))
 
-    results = query.to_list()
-    return results
+    return query.to_list()
 
 
 def get_chunks_by_doc(doc_id: str) -> list[dict]:
     """Retrieve all chunks for a specific document."""
+    if not _table_exists():
+        return []
     safe_id = _sanitize_where_value(doc_id)
     db = get_db()
-    ensure_table_exists()
     table = db.open_table(CHUNKS_TABLE)
     results = table.search().where(f"doc_id = '{safe_id}'").limit(10000).to_list()
-    # Sort by chunk_index
     results.sort(key=lambda c: c.get("chunk_index", 0))
     return results
 
 
 def delete_doc_chunks(doc_id: str) -> int:
     """Delete all chunks for a document. Returns count deleted."""
+    if not _table_exists():
+        return 0
     safe_id = _sanitize_where_value(doc_id)
     db = get_db()
-    ensure_table_exists()
     table = db.open_table(CHUNKS_TABLE)
-    # Get count before delete
     existing = table.search().where(f"doc_id = '{safe_id}'").limit(10000).to_list()
     count = len(existing)
     if count > 0:
         table.delete(f"doc_id = '{safe_id}'")
-        logger.info("Deleted chunks", extra={"doc_id": doc_id, "count": count})
+        logger.info("Deleted %d chunks for doc_id=%s", count, doc_id)
     return count
 
 
 def get_table_stats() -> dict:
     """Return basic stats about the chunks table."""
+    if not _table_exists():
+        return {
+            "total_chunks": 0,
+            "table": CHUNKS_TABLE,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
     db = get_db()
-    ensure_table_exists()
     table = db.open_table(CHUNKS_TABLE)
     row_count = table.count_rows()
     return {
@@ -168,11 +230,63 @@ def get_table_stats() -> dict:
     }
 
 
+def ensure_fts_index() -> None:
+    """Create full-text search index on the text column if not present.
+
+    Required for hybrid (BM25 + dense vector) search. Safe to call repeatedly.
+    """
+    if not _table_exists():
+        return
+    db = get_db()
+    table = db.open_table(CHUNKS_TABLE)
+    if table.count_rows() == 0:
+        return
+    try:
+        table.create_fts_index("text", replace=True)
+        logger.info("FTS index created/refreshed on '%s.text'", CHUNKS_TABLE)
+    except Exception:
+        logger.warning("FTS index creation failed (non-critical)", exc_info=True)
+
+
+def search_hybrid(
+    query: str, query_vector: list[float], k: int = 20,
+    filters: dict | None = None,
+) -> list[dict]:
+    """Hybrid search combining BM25 full-text + dense vector via RRF.
+
+    Falls back to pure vector search if FTS is unavailable.
+    """
+    if not _table_exists():
+        return []
+    db = get_db()
+    table = db.open_table(CHUNKS_TABLE)
+    try:
+        query_builder = (
+            table.search(query_vector, query_type="hybrid")
+            .text(query)
+            .limit(k)
+        )
+        if filters:
+            clauses = []
+            for field, value in filters.items():
+                safe_f = _sanitize_field_name(field)
+                safe_v = _sanitize_where_value(str(value))
+                clauses.append(f"{safe_f} = '{safe_v}'")
+            if clauses:
+                query_builder = query_builder.where(" AND ".join(clauses))
+        results = query_builder.to_list()
+        logger.debug("Hybrid search returned %d results", len(results))
+        return results
+    except Exception:
+        logger.warning("Hybrid search failed, falling back to vector", exc_info=True)
+        return search_vectors(query_vector, k=k, filters=filters)
+
+
 def check_lancedb_connectivity() -> bool:
     """Check if LanceDB is reachable by listing tables."""
     try:
         db = get_db()
-        db.list_tables()
+        db.table_names()
         return True
     except Exception:
         logger.warning("LanceDB connectivity check failed", exc_info=True)

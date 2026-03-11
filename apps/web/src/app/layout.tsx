@@ -9,6 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Header } from "@/components/layout/header";
 import { Toaster } from "@/components/ui/sonner";
+import { ChatProvider } from "@/lib/chat-context";
 import { RefreshProvider } from "@/lib/refresh-context";
 
 const inter = Inter({
@@ -38,6 +39,7 @@ export default function RootLayout({
         className={`${inter.variable} ${geistMono.variable} antialiased`}
       >
         <ThemeProvider>
+          <ChatProvider>
           <RefreshProvider>
             <SidebarProvider>
               <TooltipProvider>
@@ -50,6 +52,7 @@ export default function RootLayout({
               </TooltipProvider>
             </SidebarProvider>
           </RefreshProvider>
+          </ChatProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -1,20 +1,32 @@
-"""Reranking — LLM-based relevance scoring of candidate chunks."""
+"""Reranking — cross-encoder relevance scoring of candidate chunks.
+
+Uses a lightweight cross-encoder model (22M params, CPU) instead of
+per-candidate LLM calls. ~100-200ms for 20 candidates vs ~10s for 20 LLM calls.
+"""
 
 import json
 import logging
+import re
 
 from app.repo import chat_completion
+from app.repo.cross_encoder_client import score_pairs
 from app.types import CandidateChunk, EvidenceSet, RankedEvidence
 
 logger = logging.getLogger(__name__)
 
 RERANK_TOP_K = 12
-CONFIDENCE_THRESHOLD = 0.3
+# Cross-encoder logit threshold; ms-marco-MiniLM-L-6-v2 scores range ~[-10, 10]
+# Positive scores generally indicate relevance
+CROSS_ENCODER_THRESHOLD = 0.0
 
-_RERANK_PROMPT = """Rate how relevant this text chunk is to the user's question.
-Score from 0.0 (irrelevant) to 1.0 (directly answers the question).
 
-Respond with JSON only: {"score": <float>, "reason": "<brief>"}"""
+def _extract_json(text: str) -> dict:
+    """Parse JSON from LLM output, stripping markdown code fences if present."""
+    cleaned = text.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    return json.loads(cleaned.strip())
+
 
 _SUFFICIENCY_PROMPT = """Given these evidence chunks and the user's question, assess:
 1. Do the chunks directly answer the question?
@@ -28,27 +40,22 @@ Respond with JSON only:
 def rerank_candidates(
     question: str, candidates: list[CandidateChunk],
 ) -> list[RankedEvidence]:
-    """LLM-based reranking of top candidates.
+    """Cross-encoder reranking of top candidates.
 
-    Scores each candidate against the question, filters by confidence threshold,
-    and returns the top K by relevance score.
+    Scores each candidate against the question using a cross-encoder model,
+    filters by threshold, and returns the top K by relevance score.
     """
     to_rerank = candidates[:20]
+    if not to_rerank:
+        return []
+
+    # Score all candidates in a single batch
+    passages = [c.text[:1500] for c in to_rerank]
+    scores = score_pairs(question, passages)
+
     ranked: list[RankedEvidence] = []
-
-    for candidate in to_rerank:
-        try:
-            response = chat_completion(
-                system_prompt=_RERANK_PROMPT,
-                user_message=f"Question: {question}\n\nChunk:\n{candidate.text[:1500]}",
-                temperature=0.0,
-            )
-            data = json.loads(response.strip())
-            score = float(data.get("score", 0.0))
-        except Exception:
-            score = candidate.score  # fallback to vector score
-
-        if score >= CONFIDENCE_THRESHOLD:
+    for candidate, score in zip(to_rerank, scores, strict=True):
+        if score >= CROSS_ENCODER_THRESHOLD:
             ranked.append(RankedEvidence(
                 chunk_id=candidate.chunk_id,
                 doc_id=candidate.doc_id,
@@ -61,6 +68,8 @@ def rerank_candidates(
             ))
 
     ranked.sort(key=lambda e: e.relevance_score, reverse=True)
+    logger.info("[reranker] %d/%d candidates scored >= %.1f threshold",
+                len(ranked), len(to_rerank), CROSS_ENCODER_THRESHOLD)
     return ranked[:RERANK_TOP_K]
 
 
@@ -86,7 +95,7 @@ def validate_evidence(
             user_message=f"Question: {question}\n\nEvidence:\n{evidence_text}",
             temperature=0.0,
         )
-        data = json.loads(response.strip())
+        data = _extract_json(response)
         return EvidenceSet(
             evidence=evidence,
             is_sufficient=data.get("is_sufficient", True),

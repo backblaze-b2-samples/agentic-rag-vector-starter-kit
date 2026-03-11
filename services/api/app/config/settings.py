@@ -24,13 +24,14 @@ class Settings(BaseSettings):
     # Embeddings (uses OpenAI regardless of llm_provider)
     embedding_model: str = "text-embedding-3-small"
 
-    # LanceDB (S3-backed vector store)
-    lancedb_uri: str = ""  # e.g. s3://bucket/lancedb/ or local path
+    # LanceDB vector store (defaults to s3://{B2_BUCKET_NAME}/lancedb/)
+    lancedb_uri: str = ""  # override with custom S3 URI or local path
 
     # Document processing pipeline
     chunk_size: int = 1000
     chunk_overlap: int = 200
     max_chunks_per_doc: int = 500
+    chunk_strategy: str = "recursive"  # "recursive" or "semantic"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
@@ -43,12 +44,7 @@ class Settings(BaseSettings):
         """Resolve LanceDB URI, defaulting to B2 bucket path."""
         if self.lancedb_uri:
             return self.lancedb_uri
-        # Default: use B2 bucket with S3-compatible URI
-        return (
-            f"s3://{self.b2_bucket_name}/lancedb/"
-            f"?region=us-west-004"
-            f"&endpoint={self.b2_s3_endpoint}"
-        )
+        return f"s3://{self.b2_bucket_name}/lancedb/"
 
 
 settings = Settings()

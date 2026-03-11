@@ -16,7 +16,7 @@ export function CitationPanel({ citations, activeCitation, onClose }: CitationPa
   if (!citations.length) return null;
 
   return (
-    <div className="w-80 border-l bg-background flex flex-col">
+    <div className="w-64 border-l bg-background flex flex-col h-full overflow-hidden shrink-0">
       {/* Header */}
       <div className="flex items-center justify-between border-b px-4 py-3">
         <h3 className="text-sm font-semibold">Sources ({citations.length})</h3>

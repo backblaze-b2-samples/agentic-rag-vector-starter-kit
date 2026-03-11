@@ -110,6 +110,7 @@ _REPO_ONLY_SDKS = {
     "langchain_openai": "langchain_openai",
     "langchain_community": "langchain_community",
     "langchain_core": "langchain_core",
+    "sentence_transformers": "sentence_transformers",
 }
 
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Upload, FolderOpen, HardDrive, MessageSquare } from "lucide-react";
+import { LayoutDashboard, Upload, FolderOpen, Brain, MessageSquare } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -30,8 +30,8 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="border-b px-4 py-3">
         <Link href="/" className="flex items-center gap-2 font-semibold">
-          <HardDrive className="h-5 w-5" />
-          <span>OSS Starter Kit</span>
+          <Brain className="h-5 w-5" />
+          <span>Agentic RAG</span>
         </Link>
       </SidebarHeader>
       <SidebarContent>

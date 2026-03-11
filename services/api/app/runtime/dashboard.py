@@ -7,6 +7,8 @@ from app.service.dashboard import (
     get_dashboard_ingestions,
     get_dashboard_queries,
     get_dashboard_retrieval_quality,
+    get_dashboard_session_messages,
+    get_dashboard_sessions,
     get_dashboard_stats,
 )
 from app.types import (
@@ -15,6 +17,8 @@ from app.types import (
     IngestionLogEntry,
     QueryLogEntry,
     RetrievalQuality,
+    SessionMessageDetail,
+    SessionSummary,
 )
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -45,6 +49,27 @@ async def dashboard_ingestions(limit: int = Query(default=20, ge=1, le=100)):
         return get_dashboard_ingestions(limit=limit)
     except Exception as e:
         raise HTTPException(status_code=503, detail="Failed to load ingestion log") from e
+
+
+@router.get("/sessions", response_model=list[SessionSummary])
+async def dashboard_sessions(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """Sessions with aggregated RAGAS scores and query counts."""
+    try:
+        return get_dashboard_sessions(limit=limit, offset=offset)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail="Failed to load sessions") from e
+
+
+@router.get("/sessions/{session_id}/messages", response_model=list[SessionMessageDetail])
+async def dashboard_session_messages(session_id: str):
+    """Messages in a session with per-message RAGAS evaluation scores."""
+    try:
+        return get_dashboard_session_messages(session_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail="Failed to load session messages") from e
 
 
 @router.get("/retrieval-quality", response_model=RetrievalQuality)

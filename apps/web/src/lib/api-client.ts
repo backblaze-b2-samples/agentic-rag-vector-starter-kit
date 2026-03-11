@@ -2,6 +2,7 @@ import type {
   AgentBehavior,
   ChatRequest,
   ChatResponse,
+  ChatSession,
   DailyUploadCount,
   DashboardStats,
   FileMetadata,
@@ -9,6 +10,8 @@ import type {
   IngestionLogEntry,
   QueryLogEntry,
   RetrievalQuality,
+  SessionMessageDetail,
+  SessionSummary,
   UploadStats,
 } from "@vibe-coding-starter-kit/shared";
 
@@ -84,6 +87,28 @@ export async function getDownloadUrl(key: string) {
 
 export async function deleteFile(key: string) {
   return apiFetch<{ deleted: boolean; key: string }>(`/files/${key}`, {
+    method: "DELETE",
+  });
+}
+
+// --- Chat Session API ---
+
+export async function listChatSessions(limit = 50) {
+  return apiFetch<ChatSession[]>(`/chat/sessions?limit=${limit}`);
+}
+
+export async function createChatSession() {
+  return apiFetch<ChatSession>("/chat/sessions", { method: "POST" });
+}
+
+export async function getChatSession(sessionId: string) {
+  return apiFetch<{ session: ChatSession; messages: unknown[] }>(
+    `/chat/sessions/${sessionId}`,
+  );
+}
+
+export async function deleteChatSession(sessionId: string) {
+  return apiFetch<{ deleted: boolean }>(`/chat/sessions/${sessionId}`, {
     method: "DELETE",
   });
 }
@@ -183,6 +208,18 @@ export async function getRetrievalQuality(days = 7) {
 
 export async function getAgentBehavior(days = 7) {
   return apiFetch<AgentBehavior>(`/dashboard/agent-behavior?days=${days}`);
+}
+
+export async function getDashboardSessions(limit = 20, offset = 0) {
+  return apiFetch<SessionSummary[]>(
+    `/dashboard/sessions?limit=${limit}&offset=${offset}`,
+  );
+}
+
+export async function getDashboardSessionMessages(sessionId: string) {
+  return apiFetch<SessionMessageDetail[]>(
+    `/dashboard/sessions/${sessionId}/messages`,
+  );
 }
 
 // --- Upload API ---

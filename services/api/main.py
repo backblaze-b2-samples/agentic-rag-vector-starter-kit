@@ -14,7 +14,11 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
 
 from app.config import settings  # noqa: E402
-from app.repo import check_connectivity, check_lancedb_connectivity  # noqa: E402
+from app.repo import (  # noqa: E402
+    check_connectivity,
+    check_lancedb_connectivity,
+    ensure_tables_ready,
+)
 from app.runtime import chat, dashboard, documents, files, health, metrics, upload  # noqa: E402
 
 # --- Structured JSON logging ---
@@ -50,17 +54,29 @@ logger = logging.getLogger("api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Run startup checks for external dependencies."""
+    """Run startup checks and ensure all tables are ready before serving."""
+    # 1. Check B2 connectivity
     b2_ok = check_connectivity()
-    lancedb_ok = check_lancedb_connectivity()
     if b2_ok:
         logger.info("B2 connectivity check passed")
     else:
         logger.error("B2 connectivity check FAILED — uploads and file ops will not work")
+
+    # 2. Check LanceDB connectivity
+    lancedb_ok = check_lancedb_connectivity()
     if lancedb_ok:
         logger.info("LanceDB connectivity check passed")
     else:
-        logger.warning("LanceDB connectivity check failed — vector search unavailable until first ingestion")
+        logger.warning("LanceDB connectivity check failed — vector operations unavailable")
+
+    # 3. Ensure LanceDB tables exist and are accessible
+    if lancedb_ok:
+        try:
+            ensure_tables_ready()
+            logger.info("LanceDB tables ready")
+        except Exception:
+            logger.error("Failed to initialize LanceDB tables", exc_info=True)
+
     yield
 
 

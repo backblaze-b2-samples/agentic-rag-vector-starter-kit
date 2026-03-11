@@ -1,35 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { streamChatMessage } from "@/lib/api-client";
+import { useChat } from "@/lib/chat-context";
 import { ChatInput } from "./chat-input";
 import { MessageBubble } from "./message-bubble";
 import { CitationPanel } from "./citation-panel";
-import type { Citation, RetrievalInfo } from "@vibe-coding-starter-kit/shared";
-
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-  citations: Citation[];
-}
+import { PipelineSteps } from "./pipeline-steps";
+import { SessionSidebar } from "./session-sidebar";
+import type { Citation, PipelineStep, RetrievalInfo } from "@vibe-coding-starter-kit/shared";
 
 export function ChatContainer() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const {
+    messages, setMessages, sessionId, setSessionId, loadSessions,
+  } = useChat();
+
   const [isStreaming, setIsStreaming] = useState(false);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>([]);
   const [showCitations, setShowCitations] = useState(false);
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
-  // Citations scoped to the message the user clicked on
   const [panelCitations, setPanelCitations] = useState<Citation[]>([]);
-  const [retrievalInfo, setRetrievalInfo] = useState<RetrievalInfo | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -37,27 +33,42 @@ export function ChatContainer() {
   }, [messages]);
 
   const handleSend = useCallback(async (text: string) => {
-    // Add user message
-    const userMsg: Message = { role: "user", content: text, citations: [] };
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: text, citations: [] },
+      { role: "assistant", content: "", citations: [] },
+    ]);
     setIsStreaming(true);
-    setRetrievalInfo(null);
-
-    // Prepare assistant message placeholder
-    const assistantMsg: Message = { role: "assistant", content: "", citations: [] };
-    setMessages((prev) => [...prev, assistantMsg]);
+    setPipelineSteps([]);
 
     abortRef.current = new AbortController();
     let streamCitations: Citation[] = [];
+    let retrievalData: RetrievalInfo | null = null;
 
     try {
       await streamChatMessage(
-        { message: text, conversation_id: conversationId },
+        { message: text, session_id: sessionId },
         (event) => {
           switch (event.type) {
+            case "step":
+              // Live pipeline step: update or append
+              setPipelineSteps((prev) => {
+                const label = event.label as string;
+                const status = event.status as PipelineStep["status"];
+                const existing = prev.findIndex((s) => s.label === label);
+                if (existing >= 0) {
+                  const updated = [...prev];
+                  updated[existing] = { label, status };
+                  return updated;
+                }
+                return [...prev, { label, status }];
+              });
+              break;
+
             case "metadata":
-              setConversationId(event.conversation_id as string);
-              setRetrievalInfo(event.retrieval as RetrievalInfo);
+              if (event.session_id) setSessionId(event.session_id as string);
+              else if (event.conversation_id) setSessionId(event.conversation_id as string);
+              retrievalData = event.retrieval as RetrievalInfo;
               break;
 
             case "citations":
@@ -65,23 +76,32 @@ export function ChatContainer() {
               break;
 
             case "token":
+              // Clear pipeline steps once tokens start flowing
+              setPipelineSteps([]);
               setMessages((prev) => {
                 const updated = [...prev];
                 const last = updated[updated.length - 1];
                 if (last.role === "assistant") {
-                  last.content += event.content as string;
+                  updated[updated.length - 1] = {
+                    ...last,
+                    content: last.content + (event.content as string),
+                  };
                 }
                 return updated;
               });
               break;
 
             case "done":
-              // Attach citations to the final assistant message
+              setPipelineSteps([]);
               setMessages((prev) => {
                 const updated = [...prev];
                 const last = updated[updated.length - 1];
                 if (last.role === "assistant") {
-                  last.citations = streamCitations;
+                  updated[updated.length - 1] = {
+                    ...last,
+                    citations: streamCitations,
+                    retrieval: retrievalData,
+                  };
                 }
                 return updated;
               });
@@ -94,20 +114,20 @@ export function ChatContainer() {
         },
         abortRef.current.signal,
       );
+      // Refresh session list (new session may have been created)
+      loadSessions();
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         toast.error("Failed to get response");
-        // Remove empty assistant message on error
         setMessages((prev) => prev.filter((m) => m.content || m.role === "user"));
       }
     } finally {
       setIsStreaming(false);
       abortRef.current = null;
     }
-  }, [conversationId]);
+  }, [sessionId, setMessages, setSessionId, loadSessions]);
 
   function handleCitationClick(citation: Citation) {
-    // Find the message containing this citation and show its full set
     const msg = messages.find((m) =>
       m.citations.some((c) => c.index === citation.index && c.doc_id === citation.doc_id)
     );
@@ -117,10 +137,12 @@ export function ChatContainer() {
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full overflow-hidden">
+      {/* Session sidebar */}
+      <SessionSidebar />
+
       {/* Main chat area */}
       <div className="flex flex-1 flex-col min-w-0">
-        {/* Messages */}
         <ScrollArea className="flex-1 p-4" ref={scrollRef}>
           <div className="mx-auto max-w-3xl space-y-6">
             {messages.length === 0 && (
@@ -134,45 +156,42 @@ export function ChatContainer() {
             )}
 
             {messages.map((msg, i) => (
-              <MessageBubble
-                key={i}
-                role={msg.role}
-                content={msg.content}
-                citations={msg.citations}
-                onCitationClick={handleCitationClick}
-              />
+              <div key={i}>
+                <MessageBubble
+                  role={msg.role}
+                  content={msg.content}
+                  citations={msg.citations}
+                  onCitationClick={handleCitationClick}
+                />
+                {msg.role === "assistant" && msg.retrieval && msg.retrieval.route !== "no_retrieval" && (
+                  <div className="flex flex-wrap gap-2 ml-11 mt-1">
+                    <Badge variant="outline" className="text-[10px]">
+                      {msg.retrieval.evidence_used} sources
+                    </Badge>
+                    <Badge variant="outline" className="text-[10px]">
+                      {msg.retrieval.queries_generated} queries
+                    </Badge>
+                    <Badge variant="outline" className="text-[10px]">
+                      {msg.retrieval.retrieval_loops} loop{msg.retrieval.retrieval_loops !== 1 ? "s" : ""}
+                    </Badge>
+                    <Badge variant="outline" className="text-[10px]">
+                      {Math.round(msg.retrieval.latency_ms)}ms
+                    </Badge>
+                  </div>
+                )}
+              </div>
             ))}
 
-            {/* Streaming indicator */}
-            {isStreaming && messages[messages.length - 1]?.content === "" && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Searching documents...</span>
-              </div>
-            )}
-
-            {/* Retrieval metadata badge */}
-            {retrievalInfo && retrievalInfo.route !== "no_retrieval" && (
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="outline" className="text-xs">
-                  {retrievalInfo.evidence_used} sources used
-                </Badge>
-                <Badge variant="outline" className="text-xs">
-                  {retrievalInfo.queries_generated} queries
-                </Badge>
-                <Badge variant="outline" className="text-xs">
-                  {Math.round(retrievalInfo.latency_ms)}ms
-                </Badge>
-              </div>
+            {isStreaming && pipelineSteps.length > 0 && (
+              <PipelineSteps steps={pipelineSteps} />
             )}
           </div>
         </ScrollArea>
 
-        {/* Input */}
         <ChatInput onSend={handleSend} disabled={isStreaming} />
       </div>
 
-      {/* Citation panel (conditional) */}
+      {/* Citation panel */}
       {showCitations && panelCitations.length > 0 && (
         <CitationPanel
           citations={panelCitations}

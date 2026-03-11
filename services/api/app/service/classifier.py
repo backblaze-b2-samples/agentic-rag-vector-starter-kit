@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 
 from app.repo import chat_completion
 from app.types import DocumentClassification
@@ -39,8 +40,10 @@ def classify_document(text_sample: str) -> DocumentClassification:
             temperature=0.0,
         )
 
-        # Parse JSON response
-        result = json.loads(response.strip())
+        # Parse JSON response (strip markdown fences if present)
+        cleaned = re.sub(r"^```(?:json)?\s*", "", response.strip())
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+        result = json.loads(cleaned.strip())
         classification = result.get("classification", "general")
 
         # Validate against enum

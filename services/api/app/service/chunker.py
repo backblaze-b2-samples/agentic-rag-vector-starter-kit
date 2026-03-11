@@ -1,4 +1,9 @@
-"""Document chunking — split documents into retrieval-sized pieces."""
+"""Document chunking — split documents into retrieval-sized pieces.
+
+Supports two strategies:
+- "recursive" (default): fast character-based recursive splitting
+- "semantic": embedding-based splitting at topic boundaries
+"""
 
 import io
 import logging
@@ -111,6 +116,7 @@ def chunk_document(
     file_data: bytes,
     content_type: str,
     filename: str,
+    strategy: str = "recursive",
 ) -> list[dict]:
     """Split a document into chunks with metadata.
 
@@ -128,7 +134,11 @@ def chunk_document(
 
     chunks: list[dict] = []
     for page_info in pages:
-        page_chunks = _split_text(page_info["text"])
+        if strategy == "semantic":
+            from app.service.semantic_chunker import semantic_chunk
+            page_chunks = semantic_chunk(page_info["text"])
+        else:
+            page_chunks = _split_text(page_info["text"])
         for text in page_chunks:
             chunks.append({
                 "text": text,

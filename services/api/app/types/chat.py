@@ -1,12 +1,12 @@
 """Types for chat and conversation management."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 
-class MessageRole(str, Enum):
+class MessageRole(StrEnum):
     user = "user"
     assistant = "assistant"
     system = "system"
@@ -35,7 +35,8 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     """Incoming chat request from the frontend."""
     message: str
-    conversation_id: str | None = None  # None = new conversation
+    conversation_id: str | None = None  # deprecated alias for session_id
+    session_id: str | None = None  # None = new session
 
 
 class ChatResponse(BaseModel):

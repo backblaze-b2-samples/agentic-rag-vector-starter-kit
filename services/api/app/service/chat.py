@@ -2,11 +2,18 @@
 
 import json
 import logging
-import uuid
+import threading
 from datetime import UTC, datetime
 
-from app.repo import chat_completion, chat_completion_stream, get_presigned_url, log_query
-from app.service.retrieval import retrieve
+from app.repo import (
+    chat_completion,
+    chat_completion_stream,
+    get_presigned_url,
+    log_query,
+    update_eval_scores,
+)
+from app.service.retrieval import retrieve, retrieve_with_steps
+from app.service.sessions import generate_title, new_session, store_message
 from app.types import (
     ChatMessage,
     ChatRequest,
@@ -17,14 +24,6 @@ from app.types import (
 )
 
 logger = logging.getLogger(__name__)
-
-# In-memory conversation store (swap for LanceDB/B2 persistence later)
-_conversations: dict[str, list[ChatMessage]] = {}
-
-
-def clear_conversations() -> None:
-    """Clear all conversations. Used by tests to prevent cross-contamination."""
-    _conversations.clear()
 
 _ANSWER_SYSTEM_PROMPT = """You are a helpful assistant that answers questions using the provided evidence.
 
@@ -43,13 +42,22 @@ Respond naturally to conversational messages. Be concise and friendly.
 If the user seems to be asking about documents, suggest they ask a specific question."""
 
 
-def _log_query_metrics(query: str, evidence_set, metrics) -> None:
-    """Log query metrics to SQLite for dashboard. Non-blocking on failure."""
+def _resolve_session_id(request: ChatRequest) -> tuple[str, bool]:
+    """Resolve session_id from request. Returns (session_id, is_new)."""
+    sid = request.session_id or request.conversation_id
+    if sid:
+        return sid, False
+    session = new_session()
+    return session.session_id, True
+
+
+def _log_query_metrics(query: str, evidence_set, metrics, session_id: str | None = None) -> str:
+    """Log query metrics to SQLite for dashboard. Returns timestamp for eval linkage."""
+    ts = datetime.now(UTC).isoformat()
     try:
         scores = [ev.relevance_score for ev in evidence_set.evidence if ev.relevance_score is not None]
         log_query(
-            query=query,
-            route=metrics.route,
+            query=query, route=metrics.route,
             queries_generated=metrics.queries_generated,
             total_candidates=metrics.total_candidates,
             post_fusion_candidates=metrics.post_fusion_candidates,
@@ -60,31 +68,43 @@ def _log_query_metrics(query: str, evidence_set, metrics) -> None:
             top1_score=scores[0] if scores else None,
             top5_scores=scores[:5],
             is_sufficient=evidence_set.is_sufficient,
+            session_id=session_id,
         )
     except Exception:
         logger.warning("Failed to log query metrics", exc_info=True)
+    return ts
+
+
+def _run_eval_async(query_ts: str, answer: str, question: str, evidence_set) -> None:
+    """Run RAGAS evaluation in a background thread (non-blocking)."""
+    def _eval():
+        try:
+            from app.service.eval_metrics import score_context_precision, score_faithfulness
+            evidence_texts = [ev.text for ev in evidence_set.evidence]
+            faith = score_faithfulness(answer, evidence_texts)
+            ctx_prec = score_context_precision(question, evidence_texts)
+            update_eval_scores(query_ts, faith, ctx_prec)
+            logger.info("[eval] RAGAS scores: faithfulness=%.2f context_precision=%.2f",
+                        faith or 0, ctx_prec or 0)
+        except Exception:
+            logger.warning("RAGAS evaluation failed", exc_info=True)
+    threading.Thread(target=_eval, daemon=True).start()
 
 
 def _build_citations(evidence_set) -> list[Citation]:
     """Convert ranked evidence into citation objects with download URLs."""
     citations = []
     for i, ev in enumerate(evidence_set.evidence):
-        # Generate presigned URL for the source document
         download_url = None
         try:
             download_url = get_presigned_url(ev.doc_id, filename=ev.source_filename)
         except Exception:
             logger.warning("Failed to generate download URL for %s", ev.doc_id)
-
         citations.append(Citation(
-            index=i + 1,
-            doc_id=ev.doc_id,
-            doc_title=ev.doc_title,
-            section_path=ev.section_path,
-            source_filename=ev.source_filename,
+            index=i + 1, doc_id=ev.doc_id, doc_title=ev.doc_title,
+            section_path=ev.section_path, source_filename=ev.source_filename,
             page=ev.page if ev.page and ev.page > 0 else None,
-            chunk_text=ev.text[:500],
-            download_url=download_url,
+            chunk_text=ev.text[:500], download_url=download_url,
         ))
     return citations
 
@@ -93,171 +113,149 @@ def _build_evidence_block(evidence_set) -> str:
     """Format evidence chunks for the LLM context window."""
     if not evidence_set.evidence:
         return "No relevant evidence found."
-
     blocks = []
     for i, ev in enumerate(evidence_set.evidence):
-        blocks.append(
-            f"[{i + 1}] Source: {ev.doc_title} > {ev.section_path}\n{ev.text}"
-        )
+        blocks.append(f"[{i + 1}] Source: {ev.doc_title} > {ev.section_path}\n{ev.text}")
     return "\n\n---\n\n".join(blocks)
 
 
-def get_conversation(conversation_id: str) -> list[ChatMessage]:
-    """Get conversation history."""
-    return _conversations.get(conversation_id, [])
+def _build_history_context(session_id: str) -> str:
+    """Build conversation context from recent session messages."""
+    from app.repo.session_store import get_messages
+    messages = get_messages(session_id)
+    if len(messages) <= 1:
+        return ""
+    recent = messages[-6:]
+    return "\nConversation context:\n" + "\n".join(
+        f"{m['role']}: {m['content'][:300]}" for m in recent
+    ) + "\n"
 
 
 def handle_chat(request: ChatRequest) -> ChatResponse:
-    """Process a chat message through the agentic retrieval pipeline.
+    """Process a chat message through the agentic retrieval pipeline."""
+    session_id, is_new = _resolve_session_id(request)
 
-    Steps:
-    1. Get or create conversation
-    2. Run retrieval pipeline
-    3. Build grounded answer with citations
-    4. Store in conversation history
-    """
-    # Get or create conversation
-    conv_id = request.conversation_id or str(uuid.uuid4())
-    history = _conversations.setdefault(conv_id, [])
+    # Persist user message
+    store_message(session_id, "user", request.message)
 
-    # Store user message
-    user_msg = ChatMessage(
-        role=MessageRole.user,
-        content=request.message,
-        timestamp=datetime.now(UTC),
-    )
-    history.append(user_msg)
+    # Auto-title on first message
+    if is_new:
+        generate_title(session_id, request.message)
 
-    # Run retrieval (Step 8: context construction happens here)
+    # Run retrieval
     evidence_set, metrics = retrieve(request.message)
-    _log_query_metrics(request.message, evidence_set, metrics)
+    query_ts = _log_query_metrics(request.message, evidence_set, metrics, session_id)
 
-    # Generate grounded answer
+    # Generate answer
     if metrics.route == "no_retrieval":
-        # Conversational response — no evidence needed
         answer_text = chat_completion(
             system_prompt=_CONVERSATIONAL_PROMPT,
-            user_message=request.message,
-            temperature=0.3,
+            user_message=request.message, temperature=0.3,
         )
         citations = []
     else:
-        # Build evidence context and generate answer
         evidence_block = _build_evidence_block(evidence_set)
         system_prompt = _ANSWER_SYSTEM_PROMPT.format(evidence=evidence_block)
-
-        # Include recent conversation context
-        recent_context = ""
-        if len(history) > 1:
-            recent_msgs = history[-6:-1]  # last 5 messages before current
-            recent_context = "\n".join(
-                f"{m.role.value}: {m.content}" for m in recent_msgs
-            )
-            recent_context = f"\nConversation context:\n{recent_context}\n"
-
+        context = _build_history_context(session_id)
         answer_text = chat_completion(
             system_prompt=system_prompt,
-            user_message=f"{recent_context}Question: {request.message}",
+            user_message=f"{context}Question: {request.message}",
             temperature=0.3,
         )
         citations = _build_citations(evidence_set)
 
-    # Build assistant message
-    assistant_msg = ChatMessage(
-        role=MessageRole.assistant,
-        content=answer_text,
-        citations=citations,
-        timestamp=datetime.now(UTC),
+    retrieval_info = RetrievalInfo(
+        route=metrics.route, queries_generated=metrics.queries_generated,
+        candidates_found=metrics.total_candidates,
+        evidence_used=metrics.evidence_count,
+        retrieval_loops=metrics.retrieval_loops, latency_ms=metrics.latency_ms,
     )
-    history.append(assistant_msg)
 
+    # Persist assistant message
+    store_message(
+        session_id, "assistant", answer_text,
+        citations=[c.model_dump() for c in citations],
+        retrieval_metadata=retrieval_info.model_dump(),
+    )
+
+    # Background RAGAS evaluation (non-blocking)
+    if metrics.route != "no_retrieval" and evidence_set.evidence:
+        _run_eval_async(query_ts, answer_text, request.message, evidence_set)
+
+    assistant_msg = ChatMessage(
+        role=MessageRole.assistant, content=answer_text, citations=citations,
+    )
     return ChatResponse(
-        conversation_id=conv_id,
-        message=assistant_msg,
-        retrieval_metadata=RetrievalInfo(
-            route=metrics.route,
-            queries_generated=metrics.queries_generated,
-            candidates_found=metrics.total_candidates,
-            evidence_used=metrics.evidence_count,
-            retrieval_loops=metrics.retrieval_loops,
-            latency_ms=metrics.latency_ms,
-        ),
+        conversation_id=session_id, message=assistant_msg,
+        retrieval_metadata=retrieval_info,
     )
 
 
 def handle_chat_stream(request: ChatRequest):
-    """Stream a chat response via SSE.
+    """Stream a chat response via SSE. Yields SSE-formatted strings."""
+    session_id, is_new = _resolve_session_id(request)
+    store_message(session_id, "user", request.message)
 
-    Yields SSE-formatted strings: "data: {json}\n\n"
-    First yields citations, then streams answer tokens.
-    """
-    conv_id = request.conversation_id or str(uuid.uuid4())
-    history = _conversations.setdefault(conv_id, [])
+    if is_new:
+        generate_title(session_id, request.message)
 
-    user_msg = ChatMessage(
-        role=MessageRole.user,
-        content=request.message,
-        timestamp=datetime.now(UTC),
-    )
-    history.append(user_msg)
+    # Run retrieval with live step streaming
+    evidence_set = None
+    metrics = None
+    for item in retrieve_with_steps(request.message):
+        if item[0] == "step":
+            yield f"data: {json.dumps({'type': 'step', 'label': item[1], 'status': item[2]})}\n\n"
+        elif item[0] == "result":
+            evidence_set, metrics = item[1], item[2]
 
-    # Run retrieval
-    evidence_set, metrics = retrieve(request.message)
-    _log_query_metrics(request.message, evidence_set, metrics)
+    query_ts = _log_query_metrics(request.message, evidence_set, metrics, session_id)
 
-    # Send metadata event
     retrieval_info = RetrievalInfo(
-        route=metrics.route,
-        queries_generated=metrics.queries_generated,
+        route=metrics.route, queries_generated=metrics.queries_generated,
         candidates_found=metrics.total_candidates,
         evidence_used=metrics.evidence_count,
-        retrieval_loops=metrics.retrieval_loops,
-        latency_ms=metrics.latency_ms,
+        retrieval_loops=metrics.retrieval_loops, latency_ms=metrics.latency_ms,
     )
-    yield f"data: {json.dumps({'type': 'metadata', 'conversation_id': conv_id, 'retrieval': retrieval_info.model_dump()})}\n\n"
 
-    # Send citations event
+    # Metadata event (includes session_id for frontend)
+    yield f"data: {json.dumps({'type': 'metadata', 'conversation_id': session_id, 'session_id': session_id, 'retrieval': retrieval_info.model_dump()})}\n\n"
+
+    # Citations event
     if metrics.route != "no_retrieval":
         citations = _build_citations(evidence_set)
-        citations_data = [c.model_dump() for c in citations]
-        yield f"data: {json.dumps({'type': 'citations', 'citations': citations_data})}\n\n"
+        yield f"data: {json.dumps({'type': 'citations', 'citations': [c.model_dump() for c in citations]})}\n\n"
     else:
         citations = []
 
-    # Build conversation context for multi-turn support
-    recent_context = ""
-    if len(history) > 1:
-        recent_msgs = history[-6:-1]
-        recent_context = "\n".join(
-            f"{m.role.value}: {m.content}" for m in recent_msgs
-        )
-        recent_context = f"\nConversation context:\n{recent_context}\n"
-
-    # Stream answer tokens
+    # Build prompt
+    context = _build_history_context(session_id)
     if metrics.route == "no_retrieval":
         system_prompt = _CONVERSATIONAL_PROMPT
         user_message = request.message
     else:
         evidence_block = _build_evidence_block(evidence_set)
         system_prompt = _ANSWER_SYSTEM_PROMPT.format(evidence=evidence_block)
-        user_message = f"{recent_context}Question: {request.message}"
+        user_message = f"{context}Question: {request.message}"
 
+    # Emit "generating answer" step
+    yield f"data: {json.dumps({'type': 'step', 'label': 'Generating answer...', 'status': 'active'})}\n\n"
+
+    # Stream answer tokens
     full_response = ""
-    for token in chat_completion_stream(
-        system_prompt=system_prompt,
-        user_message=user_message,
-    ):
+    for token in chat_completion_stream(system_prompt=system_prompt, user_message=user_message):
         full_response += token
         yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
 
-    # Send done event
+    yield f"data: {json.dumps({'type': 'step', 'label': 'Generating answer...', 'status': 'done'})}\n\n"
     yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
-    # Store assistant message in history
-    assistant_msg = ChatMessage(
-        role=MessageRole.assistant,
-        content=full_response,
-        citations=citations,
-        timestamp=datetime.now(UTC),
+    # Persist assistant message
+    store_message(
+        session_id, "assistant", full_response,
+        citations=[c.model_dump() for c in citations],
+        retrieval_metadata=retrieval_info.model_dump(),
     )
-    history.append(assistant_msg)
+
+    # Background RAGAS evaluation (non-blocking)
+    if metrics.route != "no_retrieval" and evidence_set.evidence:
+        _run_eval_async(query_ts, full_response, request.message, evidence_set)

@@ -1,12 +1,12 @@
 """Types for document processing pipeline."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 
-class DocumentStatus(str, Enum):
+class DocumentStatus(StrEnum):
     """Processing pipeline status."""
     pending = "pending"
     processing = "processing"
@@ -14,7 +14,7 @@ class DocumentStatus(str, Enum):
     failed = "failed"
 
 
-class DocumentClassification(str, Enum):
+class DocumentClassification(StrEnum):
     """High-level document category for retrieval routing."""
     policy = "policy"
     procedure = "procedure"

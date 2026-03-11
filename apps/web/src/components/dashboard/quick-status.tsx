@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, Clock, FileText, Layers, Zap, Calendar } from "lucide-react";
+import { FileText, Layers, Search, Zap } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { getDashboardStats } from "@/lib/api-client";
 import { useRefresh } from "@/lib/refresh-context";
-import { formatDate } from "@/lib/utils";
 import type { DashboardStats } from "@vibe-coding-starter-kit/shared";
 
 export function QuickStatus() {
@@ -28,10 +27,23 @@ export function QuickStatus() {
 
   const cards = [
     {
-      title: "Queries Today",
-      value: stats?.queries_today ?? 0,
-      sub: `${stats?.queries_7d ?? 0} last 7 days`,
+      title: "Documents",
+      value: stats?.total_documents ?? 0,
+      sub: `${(stats?.total_chunks ?? 0).toLocaleString()} chunks indexed`,
+      icon: FileText,
+    },
+    {
+      title: "Total Queries",
+      value: stats?.total_queries ?? 0,
+      sub: `${stats?.queries_today ?? 0} today`,
       icon: Search,
+    },
+    {
+      title: "Avg Relevance",
+      value: stats?.avg_top1_score !== null && stats?.avg_top1_score !== undefined
+        ? stats.avg_top1_score.toFixed(3) : "---",
+      sub: `${stats?.pct_below_threshold ?? 0}% below threshold`,
+      icon: Layers,
     },
     {
       title: "p95 Latency",
@@ -39,34 +51,10 @@ export function QuickStatus() {
       sub: `avg ${stats?.avg_latency_ms ?? 0}ms`,
       icon: Zap,
     },
-    {
-      title: "Documents",
-      value: stats?.total_documents ?? 0,
-      sub: `${(stats?.total_chunks ?? 0).toLocaleString()} chunks`,
-      icon: FileText,
-    },
-    {
-      title: "Avg Top-1 Score",
-      value: stats?.avg_top1_score !== null && stats?.avg_top1_score !== undefined ? stats.avg_top1_score.toFixed(3) : "---",
-      sub: `${stats?.pct_below_threshold ?? 0}% below 0.3`,
-      icon: Layers,
-    },
-    {
-      title: "KB Queries",
-      value: stats?.kb_only_count ?? 0,
-      sub: `${stats?.no_retrieval_count ?? 0} no-retrieval`,
-      icon: Clock,
-    },
-    {
-      title: "Last Ingestion",
-      value: stats?.last_ingestion_ts ? formatDate(stats.last_ingestion_ts) : "Never",
-      sub: "",
-      icon: Calendar,
-    },
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {cards.map((card) => (
         <Card key={card.title}>
           <CardHeader className="flex flex-row items-center justify-between pb-2">

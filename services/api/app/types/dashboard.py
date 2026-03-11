@@ -29,6 +29,7 @@ class IngestionLogEntry(BaseModel):
     total_tokens: int
     classification: str
     error_message: str | None
+    summary: str = ""
 
 
 class DashboardStats(BaseModel):
@@ -53,6 +54,34 @@ class RetrievalQuality(BaseModel):
     pct_below_threshold: float
     avg_evidence_count: float
     total_evaluated: int
+
+
+class SessionSummary(BaseModel):
+    """Session with aggregated RAGAS scores for dashboard."""
+    session_id: str
+    title: str
+    created_at: str
+    updated_at: str
+    message_count: int
+    avg_faithfulness: float | None
+    avg_context_precision: float | None
+    avg_latency_ms: float | None
+    total_queries: int
+
+
+class SessionMessageDetail(BaseModel):
+    """Message with per-message evaluation scores."""
+    id: int
+    role: str
+    content: str
+    timestamp: str | None
+    citations: list = []
+    retrieval_metadata: dict | None = None
+    faithfulness: float | None = None
+    context_precision: float | None = None
+    route: str | None = None
+    latency_ms: float | None = None
+    evidence_count: int | None = None
 
 
 class AgentBehavior(BaseModel):
