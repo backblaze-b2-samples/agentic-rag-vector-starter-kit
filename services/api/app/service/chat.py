@@ -199,14 +199,27 @@ def handle_chat_stream(request: ChatRequest):
     if is_new:
         generate_title(session_id, request.message)
 
-    # Run retrieval with live step streaming
+    # Run retrieval with live step streaming; fall back gracefully on errors
     evidence_set = None
     metrics = None
-    for item in retrieve_with_steps(request.message):
-        if item[0] == "step":
-            yield f"data: {json.dumps({'type': 'step', 'label': item[1], 'status': item[2]})}\n\n"
-        elif item[0] == "result":
-            evidence_set, metrics = item[1], item[2]
+    try:
+        for item in retrieve_with_steps(request.message):
+            if item[0] == "step":
+                yield f"data: {json.dumps({'type': 'step', 'label': item[1], 'status': item[2]})}\n\n"
+            elif item[0] == "result":
+                evidence_set, metrics = item[1], item[2]
+    except Exception:
+        logger.error("Retrieval pipeline failed, continuing without evidence", exc_info=True)
+
+    # Ensure we have valid objects even if retrieval crashed
+    if evidence_set is None:
+        from app.types import EvidenceSet, RetrievalMetrics
+        evidence_set = EvidenceSet(evidence=[], is_sufficient=False)
+        metrics = RetrievalMetrics(
+            route="error", queries_generated=0, total_candidates=0,
+            post_fusion_candidates=0, post_rerank_count=0,
+            evidence_count=0, retrieval_loops=0, latency_ms=0,
+        )
 
     query_ts = _log_query_metrics(request.message, evidence_set, metrics, session_id)
 

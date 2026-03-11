@@ -2,9 +2,10 @@
 
 INTENT_PROMPT = """Classify the user's intent. Respond with JSON only.
 
-If the question is purely conversational (greetings, thanks, small talk) or can be answered
-without any document lookup, set route to "no_retrieval".
-Otherwise set route to "kb_only".
+This is a document knowledge base. Users have uploaded documents and expect answers grounded
+in those documents. ONLY route to "no_retrieval" for pure small talk (greetings, thanks,
+"how are you"). For ANY question that could potentially be answered by documents — even
+broad or general-sounding ones — route to "kb_only". When in doubt, always use "kb_only".
 
 Classify intent_type as one of: q_and_a, troubleshooting, policy, action, analytics, general.
 

@@ -49,9 +49,13 @@ def rerank_candidates(
     if not to_rerank:
         return []
 
-    # Score all candidates in a single batch
-    passages = [c.text[:1500] for c in to_rerank]
-    scores = score_pairs(question, passages)
+    # Score all candidates via cross-encoder; fall back to RRF scores on failure
+    try:
+        passages = [c.text[:1500] for c in to_rerank]
+        scores = score_pairs(question, passages)
+    except Exception:
+        logger.warning("Cross-encoder failed, falling back to candidate scores", exc_info=True)
+        scores = [c.score for c in to_rerank]
 
     ranked: list[RankedEvidence] = []
     for candidate, score in zip(to_rerank, scores, strict=True):

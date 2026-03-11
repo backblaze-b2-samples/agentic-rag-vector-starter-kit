@@ -200,6 +200,10 @@ def retrieve_with_steps(question: str) -> Generator[StepEvent]:
         all_candidates_count += len(candidates)
         yield ("step", f"Searching documents ({n_queries} queries)...", "done")
 
+        if not candidates:
+            logger.info("[retrieval] No candidates found, skipping rerank/CRAG")
+            break
+
         yield ("step", f"Fusing {len(candidates)} candidates...", "active")
         fused = _fuse_and_dedup(candidates)
         fused_count = len(fused)
@@ -209,17 +213,33 @@ def retrieve_with_steps(question: str) -> Generator[StepEvent]:
         ranked = rerank_candidates(q, fused)
         yield ("step", "Cross-encoder reranking...", "done")
 
-        yield ("step", "Grading retrieval quality...", "active")
-        crag_result = assess_and_correct(q, ranked)
-        yield ("step", "Grading retrieval quality...", "done")
+        # CRAG grading — skip on failure, use ranked evidence as-is
+        try:
+            yield ("step", "Grading retrieval quality...", "active")
+            crag_result = assess_and_correct(q, ranked)
+            yield ("step", "Grading retrieval quality...", "done")
+        except Exception:
+            logger.warning("CRAG assessment failed, using ranked evidence", exc_info=True)
+            from app.types.crag import CRAGResult, RetrievalGrade
+            crag_result = CRAGResult(grade=RetrievalGrade.ambiguous, evidence=ranked)
+            yield ("step", "Grading retrieval quality...", "done")
 
-        yield ("step", "Validating evidence...", "active")
-        evidence_set = validate_evidence(q, crag_result.evidence)
-        if crag_result.correction_note:
-            evidence_set.gap_description = (
-                evidence_set.gap_description + " " + crag_result.correction_note
-            ).strip()
-        yield ("step", "Validating evidence...", "done")
+        # Evidence validation — skip on failure, assume sufficient if we have evidence
+        try:
+            yield ("step", "Validating evidence...", "active")
+            evidence_set = validate_evidence(q, crag_result.evidence)
+            if crag_result.correction_note:
+                evidence_set.gap_description = (
+                    evidence_set.gap_description + " " + crag_result.correction_note
+                ).strip()
+            yield ("step", "Validating evidence...", "done")
+        except Exception:
+            logger.warning("Evidence validation failed, using evidence as-is", exc_info=True)
+            evidence_set = EvidenceSet(
+                evidence=crag_result.evidence,
+                is_sufficient=len(crag_result.evidence) >= 1,
+            )
+            yield ("step", "Validating evidence...", "done")
 
         if evidence_set.is_sufficient or not evidence_set.gap_description:
             break
