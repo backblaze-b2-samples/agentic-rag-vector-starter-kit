@@ -26,6 +26,7 @@ from app.types import (
     IntentClassification,
     QueryPlan,
     QueryVariant,
+    RankedEvidence,
     RetrievalMetrics,
     RetrievalRoute,
 )
@@ -151,6 +152,21 @@ def _fuse_and_dedup(candidates: list[CandidateChunk]) -> list[CandidateChunk]:
     return fused[:40]
 
 
+def _build_doc_info_evidence() -> list[RankedEvidence]:
+    """Convert corpus index into evidence so the LLM can describe documents."""
+    corpus = get_corpus_index()
+    evidence = []
+    for doc in corpus:
+        text = f"Document: {doc['doc_title']}\nType: {doc['classification']}\nSummary: {doc['summary']}"
+        evidence.append(RankedEvidence(
+            chunk_id=doc["doc_id"], doc_id=doc["doc_id"],
+            doc_title=doc["doc_title"], section_path="Document Overview",
+            text=text, relevance_score=1.0,
+            source_filename=doc["doc_title"],
+        ))
+    return evidence
+
+
 # Step event type: ("step", label, status) or ("result", evidence_set, metrics)
 StepEvent = tuple[str, ...]
 
@@ -175,6 +191,19 @@ def retrieve_with_steps(question: str) -> Generator[StepEvent]:
             route="no_retrieval", queries_generated=0, total_candidates=0,
             post_fusion_candidates=0, post_rerank_count=0,
             evidence_count=0, retrieval_loops=0, latency_ms=elapsed,
+        ))
+        return
+
+    # Doc info route: return corpus inventory as evidence (no vector search needed)
+    if intent.route == RetrievalRoute.doc_info:
+        yield ("step", "Loading document inventory...", "active")
+        evidence = _build_doc_info_evidence()
+        yield ("step", "Loading document inventory...", "done")
+        elapsed = (time.time() - start) * 1000
+        yield ("result", EvidenceSet(evidence=evidence, is_sufficient=len(evidence) > 0), RetrievalMetrics(
+            route="doc_info", queries_generated=0, total_candidates=len(evidence),
+            post_fusion_candidates=0, post_rerank_count=len(evidence),
+            evidence_count=len(evidence), retrieval_loops=0, latency_ms=elapsed,
         ))
         return
 

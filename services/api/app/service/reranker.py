@@ -15,9 +15,9 @@ from app.types import CandidateChunk, EvidenceSet, RankedEvidence
 logger = logging.getLogger(__name__)
 
 RERANK_TOP_K = 12
-# Cross-encoder logit threshold; ms-marco-MiniLM-L-6-v2 scores range ~[-10, 10]
-# Positive scores generally indicate relevance
-CROSS_ENCODER_THRESHOLD = 0.0
+# Cross-encoder logit threshold; ms-marco-MiniLM-L-6-v2 scores range ~[-10, 10].
+# -3.0 keeps borderline results; true garbage is typically < -5.
+CROSS_ENCODER_THRESHOLD = -3.0
 
 
 def _extract_json(text: str) -> dict:

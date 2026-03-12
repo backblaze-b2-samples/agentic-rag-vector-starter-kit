@@ -5,6 +5,7 @@ Flow: chunk → classify → summarize → embed → store in LanceDB.
 
 import hashlib
 import logging
+from collections.abc import Generator
 from datetime import UTC, datetime
 
 from app.config import settings
@@ -202,3 +203,95 @@ def process_document(
             error_message=str(e),
             processed_at=datetime.now(UTC),
         )
+
+
+# Step event: ("step", label, status) or ("result", ProcessedDocument)
+PipelineStepEvent = tuple[str, ...]
+
+
+def process_document_with_steps(
+    file_data: bytes, doc_id: str, filename: str, content_type: str,
+) -> Generator[PipelineStepEvent]:
+    """Generator wrapper around process_document that yields step events."""
+    if content_type not in PROCESSABLE_TYPES:
+        yield ("step", "Skipping non-text file", "done")
+        yield ("result", process_document(file_data, doc_id, filename, content_type))
+        return
+
+    strategy = settings.chunk_strategy
+    try:
+        yield ("step", f"Chunking document ({strategy})...", "active")
+        raw_chunks = chunk_document(file_data, content_type, filename, strategy=strategy)
+        if not raw_chunks:
+            yield ("step", "No text extracted", "done")
+            yield ("result", process_document(file_data, doc_id, filename, content_type))
+            return
+        yield ("step", f"Created {len(raw_chunks)} chunks", "done")
+
+        yield ("step", "Classifying document...", "active")
+        classification = classify_document(" ".join(c["text"] for c in raw_chunks[:3]))
+        yield ("step", f"Classified as {classification.value}", "done")
+
+        yield ("step", f"Summarizing {len(raw_chunks)} chunks...", "active")
+        chunk_summaries = [summarize_chunk(c["text"]) for c in raw_chunks]
+        yield ("step", "Summarization complete", "done")
+
+        yield ("step", "Generating document summary...", "active")
+        doc_summary = summarize_document(chunk_summaries)
+        yield ("step", "Document summary ready", "done")
+
+        yield ("step", "Adding contextual metadata...", "active")
+        contextualize_chunks(raw_chunks, doc_summary, filename)
+        yield ("step", "Contextual metadata added", "done")
+
+        yield ("step", f"Embedding {len(raw_chunks)} chunks...", "active")
+        texts = [
+            f"{c.get('text_with_context', c['text'])}\n\nSummary: {s}"
+            for c, s in zip(raw_chunks, chunk_summaries, strict=True)
+        ]
+        vectors = embed_chunks(texts)
+        yield ("step", f"Generated {len(vectors)} embeddings", "done")
+
+        yield ("step", "Storing in vector database...", "active")
+        now = datetime.now(UTC).isoformat()
+        records = []
+        total_tokens = 0
+        for i, (chunk, summary, vector) in enumerate(
+            zip(raw_chunks, chunk_summaries, vectors, strict=True)
+        ):
+            token_count = len(chunk["text"].split())
+            total_tokens += token_count
+            records.append({
+                "chunk_id": _generate_chunk_id(doc_id, i), "doc_id": doc_id,
+                "doc_title": filename, "section_path": chunk["section_path"],
+                "text": chunk["text"], "summary": summary,
+                "classification": classification.value, "chunk_index": i,
+                "total_chunks": chunk["total_chunks"], "source_filename": filename,
+                "source_content_type": content_type,
+                "source_page": chunk.get("page") or 0,
+                "token_count": token_count, "updated_at": now, "vector": vector,
+            })
+        delete_doc_chunks(doc_id)
+        add_chunks(records)
+        ensure_fts_index()
+        yield ("step", f"Stored {len(records)} chunks", "done")
+
+        _safe_log_ingestion(
+            doc_id, filename, "completed", len(records), total_tokens,
+            classification.value, None, summary=doc_summary,
+        )
+        yield ("result", ProcessedDocument(
+            doc_id=doc_id, filename=filename, classification=classification,
+            summary=doc_summary, chunk_count=len(records), total_tokens=total_tokens,
+            status=DocumentStatus.completed, processed_at=datetime.now(UTC),
+        ))
+    except Exception as e:
+        logger.exception("Pipeline failed for %s: %s", filename, e)
+        _safe_log_ingestion(doc_id, filename, "failed", 0, 0, "general", str(e))
+        yield ("step", f"Pipeline failed: {e}", "done")
+        yield ("result", ProcessedDocument(
+            doc_id=doc_id, filename=filename,
+            classification=DocumentClassification.general, summary="",
+            chunk_count=0, total_tokens=0, status=DocumentStatus.failed,
+            error_message=str(e), processed_at=datetime.now(UTC),
+        ))

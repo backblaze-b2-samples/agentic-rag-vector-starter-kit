@@ -263,3 +263,47 @@ export function uploadFile(
     xhr.send(formData);
   });
 }
+
+/** Upload file with SSE streaming of pipeline progress steps. */
+export async function uploadFileStreaming(
+  file: File,
+  onEvent: (event: { type: string; [key: string]: unknown }) => void,
+) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${API_BASE}/upload/stream`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(body.detail || `Upload failed: ${res.status}`, res.status);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new ApiError("No response body", 0);
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        try {
+          onEvent(JSON.parse(line.slice(6)));
+        } catch {
+          // skip malformed events
+        }
+      }
+    }
+  }
+}

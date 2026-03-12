@@ -1,10 +1,11 @@
 import logging
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile
+from fastapi.responses import StreamingResponse
 
 from app.config import settings
 from app.runtime.metrics import record_upload
-from app.service.upload import UploadError, process_upload
+from app.service.upload import UploadError, process_upload, process_upload_streaming
 from app.types import FileUploadResponse
 
 logger = logging.getLogger(__name__)
@@ -55,3 +56,43 @@ async def upload(request: Request, file: UploadFile):
         result.content_type,
     )
     return result
+
+
+@router.post("/upload/stream")
+async def upload_stream(request: Request, file: UploadFile):
+    """Upload file and stream RAG pipeline progress via SSE."""
+    content_type = file.content_type or "application/octet-stream"
+    content_length_header = request.headers.get("content-length")
+    content_length = int(content_length_header) if content_length_header else None
+
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > settings.max_file_size:
+            raise HTTPException(status_code=413, detail="File too large")
+        chunks.append(chunk)
+    file_data = b"".join(chunks)
+
+    try:
+        # Validate early so we can return HTTP errors before starting SSE
+        from app.service.upload import _validate_upload
+        _validate_upload(file_data, file.filename or "", content_type, content_length)
+    except UploadError as e:
+        record_upload(success=False)
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from None
+
+    def generate():
+        try:
+            yield from process_upload_streaming(
+                file_data, file.filename or "", content_type, content_length,
+            )
+            record_upload(success=True)
+        except Exception:
+            logger.exception("Streaming upload failed")
+            record_upload(success=False)
+
+    return StreamingResponse(generate(), media_type="text/event-stream")

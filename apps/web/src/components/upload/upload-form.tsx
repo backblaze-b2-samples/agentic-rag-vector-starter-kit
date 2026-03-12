@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Dropzone } from "./dropzone";
 import { UploadProgress, type UploadItem } from "./upload-progress";
 import { ProcessingStatus } from "./processing-status";
-import { uploadFile } from "@/lib/api-client";
+import { PipelineProgress } from "./pipeline-progress";
+import { uploadFileStreaming } from "@/lib/api-client";
 import { humanizeBytes } from "@/lib/utils";
 import { useRefresh } from "@/lib/refresh-context";
-import type { PipelineResult } from "@vibe-coding-starter-kit/shared";
+import type { PipelineResult, PipelineStep } from "@vibe-coding-starter-kit/shared";
 
 interface CompletedFile {
   filename: string;
@@ -19,10 +20,16 @@ interface CompletedFile {
   pipeline: PipelineResult | null;
 }
 
+interface ActivePipeline {
+  filename: string;
+  steps: PipelineStep[];
+}
+
 export function UploadForm() {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [completedFiles, setCompletedFiles] = useState<CompletedFile[]>([]);
+  const [activePipelines, setActivePipelines] = useState<ActivePipeline[]>([]);
   const { triggerRefresh } = useRefresh();
 
   const handleFilesRejected = useCallback((rejections: FileRejection[]) => {
@@ -51,43 +58,74 @@ export function UploadForm() {
     const uploadQueue = async () => {
       let anySuccess = false;
       for (const item of newItems) {
+        // Add active pipeline tracker for this file
+        const pipelineKey = item.file.name;
+        setActivePipelines((prev) => [...prev, { filename: pipelineKey, steps: [] }]);
+
         try {
-          const response = await uploadFile(item.file, (percent) => {
-            setItems((prev) =>
-              prev.map((i) =>
-                i.id === item.id ? { ...i, progress: percent } : i
-              )
-            );
-          });
+          // Mark upload progress to 50% (uploading phase)
           setItems((prev) =>
-            prev.map((i) =>
-              i.id === item.id
-                ? { ...i, status: "complete", progress: 100 }
-                : i
-            )
+            prev.map((i) => i.id === item.id ? { ...i, progress: 50 } : i)
           );
-          toast.success(`${item.file.name} uploaded successfully`);
+
+          let pipelineResult: PipelineResult | null = null;
+
+          await uploadFileStreaming(item.file, (event) => {
+            switch (event.type) {
+              case "uploaded":
+                // File is in B2, pipeline starting
+                setItems((prev) =>
+                  prev.map((i) => i.id === item.id ? { ...i, progress: 100 } : i)
+                );
+                break;
+
+              case "step":
+                // Pipeline step update
+                setActivePipelines((prev) =>
+                  prev.map((p) => {
+                    if (p.filename !== pipelineKey) return p;
+                    const label = event.label as string;
+                    const status = event.status as PipelineStep["status"];
+                    const existing = p.steps.findIndex((s) => s.label === label);
+                    if (existing >= 0) {
+                      const updated = [...p.steps];
+                      updated[existing] = { label, status };
+                      return { ...p, steps: updated };
+                    }
+                    return { ...p, steps: [...p.steps, { label, status }] };
+                  })
+                );
+                break;
+
+              case "done":
+                pipelineResult = (event.pipeline as PipelineResult) ?? null;
+                break;
+            }
+          });
+
+          // Mark complete
+          setItems((prev) =>
+            prev.map((i) => i.id === item.id ? { ...i, status: "complete", progress: 100 } : i)
+          );
+          // Remove active pipeline, add to completed
+          setActivePipelines((prev) => prev.filter((p) => p.filename !== pipelineKey));
           setCompletedFiles((prev) => [...prev, {
             filename: item.file.name,
             contentType: item.file.type || "application/octet-stream",
-            pipeline: response.pipeline ?? null,
+            pipeline: pipelineResult,
           }]);
+          toast.success(`${item.file.name} processed successfully`);
           anySuccess = true;
         } catch (err) {
-          const message =
-            err instanceof Error ? err.message : "Upload failed";
+          const message = err instanceof Error ? err.message : "Upload failed";
           setItems((prev) =>
-            prev.map((i) =>
-              i.id === item.id
-                ? { ...i, status: "error", error: message }
-                : i
-            )
+            prev.map((i) => i.id === item.id ? { ...i, status: "error", error: message } : i)
           );
+          setActivePipelines((prev) => prev.filter((p) => p.filename !== pipelineKey));
           toast.error(`Failed to upload ${item.file.name}: ${message}`);
         }
       }
       setUploading(false);
-      // Trigger data refresh so dashboard/file browser show new files
       if (anySuccess) triggerRefresh();
     };
 
@@ -96,6 +134,8 @@ export function UploadForm() {
 
   const clearCompleted = useCallback(() => {
     setItems((prev) => prev.filter((i) => i.status === "uploading"));
+    setCompletedFiles([]);
+    setActivePipelines([]);
   }, []);
 
   const hasCompleted = items.some(
@@ -114,7 +154,11 @@ export function UploadForm() {
           disabled={uploading}
         />
         <UploadProgress items={items} />
-        {/* RAG processing status for completed uploads */}
+        {/* Live pipeline steps for files being processed */}
+        {activePipelines.map((p) => (
+          <PipelineProgress key={p.filename} filename={p.filename} steps={p.steps} />
+        ))}
+        {/* Completed pipeline results */}
         {completedFiles.length > 0 && (
           <div className="space-y-1">
             {completedFiles.map((f, i) => (

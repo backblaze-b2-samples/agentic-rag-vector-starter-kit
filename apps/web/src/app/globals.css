@@ -137,6 +137,7 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
   }
   table, pre, code, [data-slot="table"] {
     text-rendering: optimizeSpeed;

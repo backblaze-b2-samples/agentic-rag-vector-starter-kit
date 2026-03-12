@@ -3,13 +3,20 @@
 INTENT_PROMPT = """Classify the user's intent. Respond with JSON only.
 
 This is a document knowledge base. Users have uploaded documents and expect answers grounded
-in those documents. ONLY route to "no_retrieval" for pure small talk (greetings, thanks,
-"how are you"). For ANY question that could potentially be answered by documents — even
-broad or general-sounding ones — route to "kb_only". When in doubt, always use "kb_only".
+in those documents.
+
+Routes:
+- "doc_info": questions ABOUT the documents themselves (e.g. "what documents do you have",
+  "list my files", "what topics are covered", "how many documents", "what did I upload")
+- "kb_only": questions that should be answered FROM the documents (even broad or general ones
+  like "what is X" — always search docs first)
+- "no_retrieval": ONLY pure small talk (greetings, thanks, "how are you")
+
+When in doubt, always use "kb_only".
 
 Classify intent_type as one of: q_and_a, troubleshooting, policy, action, analytics, general.
 
-{"route": "kb_only"|"no_retrieval", "intent_type": "<type>", "filters": {}}"""
+{"route": "kb_only"|"doc_info"|"no_retrieval", "intent_type": "<type>", "filters": {}}"""
 
 QUERY_PLAN_PROMPT = """Generate 2-5 search query variants to find relevant documents.
 Each variant should approach the question differently:

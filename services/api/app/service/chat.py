@@ -41,6 +41,15 @@ _CONVERSATIONAL_PROMPT = """You are a helpful assistant for a document knowledge
 Respond naturally to conversational messages. Be concise and friendly.
 If the user seems to be asking about documents, suggest they ask a specific question."""
 
+_DOC_INFO_PROMPT = """You are a helpful assistant for a document knowledge base.
+The user is asking about the documents available in the system.
+Describe what documents are available based on the evidence below.
+Present the information clearly: document names, types, and a brief description of each.
+If no documents are available, let the user know the knowledge base is empty.
+
+Documents in the knowledge base:
+{evidence}"""
+
 
 def _resolve_session_id(request: ChatRequest) -> tuple[str, bool]:
     """Resolve session_id from request. Returns (session_id, is_new)."""
@@ -146,13 +155,20 @@ def handle_chat(request: ChatRequest) -> ChatResponse:
     evidence_set, metrics = retrieve(request.message)
     query_ts = _log_query_metrics(request.message, evidence_set, metrics, session_id)
 
-    # Generate answer
+    # Generate answer based on route
     if metrics.route == "no_retrieval":
         answer_text = chat_completion(
             system_prompt=_CONVERSATIONAL_PROMPT,
             user_message=request.message, temperature=0.3,
         )
         citations = []
+    elif metrics.route == "doc_info":
+        evidence_block = _build_evidence_block(evidence_set)
+        answer_text = chat_completion(
+            system_prompt=_DOC_INFO_PROMPT.format(evidence=evidence_block),
+            user_message=request.message, temperature=0.3,
+        )
+        citations = _build_citations(evidence_set)
     else:
         evidence_block = _build_evidence_block(evidence_set)
         system_prompt = _ANSWER_SYSTEM_PROMPT.format(evidence=evidence_block)
@@ -240,10 +256,14 @@ def handle_chat_stream(request: ChatRequest):
     else:
         citations = []
 
-    # Build prompt
+    # Build prompt based on route
     context = _build_history_context(session_id)
     if metrics.route == "no_retrieval":
         system_prompt = _CONVERSATIONAL_PROMPT
+        user_message = request.message
+    elif metrics.route == "doc_info":
+        evidence_block = _build_evidence_block(evidence_set)
+        system_prompt = _DOC_INFO_PROMPT.format(evidence=evidence_block)
         user_message = request.message
     else:
         evidence_block = _build_evidence_block(evidence_set)

@@ -4,7 +4,7 @@ import re
 from app.config import settings
 from app.repo import upload_file
 from app.service.metadata import extract_metadata
-from app.service.pipeline import process_document
+from app.service.pipeline import process_document, process_document_with_steps
 from app.types import FileUploadResponse, PipelineResult
 from app.types.formatting import humanize_bytes
 
@@ -80,6 +80,26 @@ class UploadError(Exception):
         super().__init__(detail)
 
 
+def _validate_upload(
+    file_data: bytes, filename: str, content_type: str, content_length: int | None,
+) -> str:
+    """Validate upload params. Returns sanitized filename. Raises UploadError."""
+    if not filename:
+        raise UploadError("No filename provided")
+    if content_length and content_length > settings.max_file_size:
+        raise UploadError(f"File too large. Max size: {humanize_bytes(settings.max_file_size)}", 413)
+    if content_type not in ALLOWED_TYPES:
+        raise UploadError(f"File type '{content_type}' not allowed", 415)
+    safe_name = sanitize_filename(filename)
+    if not validate_extension_matches_type(safe_name, content_type):
+        raise UploadError("File extension does not match declared content type", 415)
+    if len(file_data) == 0:
+        raise UploadError("Empty file")
+    if len(file_data) > settings.max_file_size:
+        raise UploadError(f"File too large. Max size: {humanize_bytes(settings.max_file_size)}", 413)
+    return safe_name
+
+
 def process_upload(
     file_data: bytes,
     filename: str,
@@ -87,39 +107,7 @@ def process_upload(
     content_length: int | None = None,
 ) -> FileUploadResponse:
     """Validate and process a file upload. Raises UploadError on failure."""
-    if not filename:
-        raise UploadError("No filename provided")
-
-    if content_length and content_length > settings.max_file_size:
-        raise UploadError(
-            f"File too large. Max size: {humanize_bytes(settings.max_file_size)}",
-            status_code=413,
-        )
-
-    if content_type not in ALLOWED_TYPES:
-        raise UploadError(
-            f"File type '{content_type}' not allowed", status_code=415
-        )
-
-    safe_name = sanitize_filename(filename)
-
-    if not validate_extension_matches_type(safe_name, content_type):
-        raise UploadError(
-            "File extension does not match declared content type",
-            status_code=415,
-        )
-
-    if len(file_data) == 0:
-        raise UploadError("Empty file")
-
-    if len(file_data) > settings.max_file_size:
-        raise UploadError(
-            f"File too large. Max size: {humanize_bytes(settings.max_file_size)}",
-            status_code=413,
-        )
-
-    # B2 buckets are always versioned — uploading the same key creates a new
-    # version automatically.  No duplicate rejection needed.
+    safe_name = _validate_upload(file_data, filename, content_type, content_length)
     key = f"uploads/{safe_name}"
     result = upload_file(file_data, key, content_type)
     metadata = extract_metadata(file_data, safe_name, content_type)
@@ -129,29 +117,51 @@ def process_upload(
     try:
         doc = process_document(file_data, key, safe_name, content_type)
         pipeline_info = PipelineResult(
-            status=doc.status.value,
-            classification=doc.classification.value,
-            summary=doc.summary,
-            chunk_count=doc.chunk_count,
-            total_tokens=doc.total_tokens,
-            error_message=doc.error_message,
-        )
-        logger.info(
-            "Pipeline result: doc=%s status=%s chunks=%d",
-            key, doc.status.value, doc.chunk_count,
+            status=doc.status.value, classification=doc.classification.value,
+            summary=doc.summary, chunk_count=doc.chunk_count,
+            total_tokens=doc.total_tokens, error_message=doc.error_message,
         )
     except Exception:
         pipeline_info = PipelineResult(status="failed", error_message="Pipeline error")
         logger.warning("Pipeline failed for %s", key, exc_info=True)
 
     return FileUploadResponse(
-        key=result.key,
-        filename=result.filename,
-        size_bytes=result.size_bytes,
-        size_human=result.size_human,
-        content_type=content_type,
-        uploaded_at=result.uploaded_at,
-        url=result.url,
-        metadata=metadata,
-        pipeline=pipeline_info,
+        key=result.key, filename=result.filename, size_bytes=result.size_bytes,
+        size_human=result.size_human, content_type=content_type,
+        uploaded_at=result.uploaded_at, url=result.url,
+        metadata=metadata, pipeline=pipeline_info,
     )
+
+
+def process_upload_streaming(
+    file_data: bytes, filename: str, content_type: str,
+    content_length: int | None = None,
+):
+    """Upload file to B2, then stream pipeline step events. Yields SSE strings."""
+    import json
+
+    safe_name = _validate_upload(file_data, filename, content_type, content_length)
+    key = f"uploads/{safe_name}"
+
+    # Phase 1: upload to B2
+    result = upload_file(file_data, key, content_type)
+    extract_metadata(file_data, safe_name, content_type)
+    yield f"data: {json.dumps({'type': 'uploaded', 'key': result.key, 'filename': result.filename})}\n\n"
+
+    # Phase 2: stream pipeline steps
+    final_doc = None
+    for item in process_document_with_steps(file_data, key, safe_name, content_type):
+        if item[0] == "step":
+            yield f"data: {json.dumps({'type': 'step', 'label': item[1], 'status': item[2]})}\n\n"
+        elif item[0] == "result":
+            final_doc = item[1]
+
+    # Phase 3: final result
+    pipeline_info = None
+    if final_doc:
+        pipeline_info = {
+            "status": final_doc.status.value, "classification": final_doc.classification.value,
+            "summary": final_doc.summary, "chunk_count": final_doc.chunk_count,
+            "total_tokens": final_doc.total_tokens, "error_message": final_doc.error_message,
+        }
+    yield f"data: {json.dumps({'type': 'done', 'key': result.key, 'filename': result.filename, 'size_bytes': result.size_bytes, 'size_human': result.size_human, 'content_type': content_type, 'uploaded_at': result.uploaded_at, 'pipeline': pipeline_info})}\n\n"

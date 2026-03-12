@@ -16,6 +16,7 @@ const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
   display: "swap",
+  axes: ["opsz"],
 });
 
 const geistMono = Geist_Mono({

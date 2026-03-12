@@ -1,4 +1,4 @@
-<!-- last_verified: 2026-03-10 -->
+<!-- last_verified: 2026-03-11 -->
 # Agentic RAG Vector Starter Kit
 
 A production-ready **agentic RAG starter kit** and **retrieval-augmented generation template** for building AI-powered document Q&A applications. Upload documents, automatically chunk, classify, summarize, and embed them into vectors, then chat with your knowledge base using a multi-step agentic retrieval pipeline with citations.
@@ -6,9 +6,15 @@ A production-ready **agentic RAG starter kit** and **retrieval-augmented generat
 Built on **[Backblaze B2](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=oss-starter)** cloud storage, **LanceDB** vector database, and **LangChain**. Works with **OpenAI** (one key for everything) or **Anthropic Claude** for chat.
 
 **What you get out of the box:**
-- **Chat UI with RAG citations**: ChatGPT/Claude-style interface with streaming responses and clickable source references
-- **Document processing pipeline**: automatic chunking, classification, summarization, and embedding on upload
-- **9-step agentic retrieval**: intent routing, query planning, multi-query vector search, Reciprocal Rank Fusion, LLM reranking, evidence validation with retry loops
+- **Chat UI with RAG citations**: ChatGPT/Claude-style interface with streaming responses, clickable source references, and live pipeline step visualization
+- **Document processing pipeline**: automatic chunking (recursive or semantic), classification, summarization, contextual enrichment, and embedding on upload
+- **Agentic retrieval pipeline**: intent routing, corpus-aware query rewriting, multi-query planning, hybrid BM25 + dense vector search, Reciprocal Rank Fusion, cross-encoder reranking, Corrective RAG (CRAG) grading, evidence validation with retry loops
+- **Cross-encoder reranking**: lightweight 22M-param model (ms-marco-MiniLM-L-6-v2) replaces per-candidate LLM calls — ~100-200ms for 20 candidates vs ~10s
+- **Hybrid search**: BM25 full-text + dense vector search with automatic RRF fusion via LanceDB
+- **RAGAS evaluation**: automated faithfulness and context precision scoring (LLM-as-judge) runs asynchronously after each response
+- **Corrective RAG (CRAG)**: grades retrieval quality as Correct/Ambiguous/Wrong and takes corrective action — strips irrelevant evidence, adds caveats for partial matches
+- **Graceful degradation**: every pipeline step has fallback handling — cross-encoder failure falls back to score-based ranking, CRAG failure keeps evidence, full pipeline failure still generates a response
+- **Session analytics dashboard**: session-level drill-down with per-message RAGAS scores (faithfulness, context precision), retrieval metrics, and agent behavior analytics
 - **LanceDB vector store on S3/B2**: no separate vector database infrastructure to manage
 - **LangChain orchestration**: pluggable LLM providers (OpenAI default, Anthropic optional), one API key to start
 - **File management**: drag-and-drop upload with progress tracking, file browser, and dashboard
@@ -148,12 +154,12 @@ For production deployment, see [Railway docs](infra/railway/README.md).
 
 ## Core Features
 
-- [Chat UI](docs/features/chat.md): ChatGPT/Claude-style interface with streaming and citations
-- [Agentic Retrieval](docs/features/agentic-retrieval.md): 9-step RAG pipeline with intent routing, query planning, reranking
-- [Document Pipeline](docs/features/document-pipeline.md): automatic chunking, classification, summarization, embedding
+- [Chat UI](docs/features/chat.md): streaming responses with citations and live pipeline step visualization
+- [Agentic Retrieval](docs/features/agentic-retrieval.md): multi-step RAG pipeline with intent routing, query rewriting, hybrid search, cross-encoder reranking, CRAG, and evidence validation
+- [Document Pipeline](docs/features/document-pipeline.md): recursive or semantic chunking, classification, summarization, contextual enrichment, embedding
 - [File Upload](docs/features/file-upload.md): drag-and-drop upload with real-time progress and RAG processing
 - [File Browser](docs/features/file-browser.md): list, preview, download, delete files
-- [Dashboard](docs/features/dashboard.md): stats cards, upload chart, recent uploads
+- [Dashboard](docs/features/dashboard.md): session analytics with RAGAS evaluation scores, retrieval quality, agent behavior metrics
 - [Metadata Extraction](docs/features/metadata-extraction.md): image dimensions, EXIF, PDF info, checksums
 - Structural tests: verify layering rules, import boundaries, SDK containment, file size limits
 - Structured JSON logging: every request traced with `request_id` and timing
@@ -163,8 +169,9 @@ For production deployment, see [Railway docs](infra/railway/README.md).
 ## Tech Stack
 
 - TypeScript, Next.js 16, React 19, Tailwind v4, shadcn/ui, Recharts
-- Python 3.11+, FastAPI, Pydantic v2, Pillow, PyPDF2
-- LanceDB (vector store on S3/B2), LangChain (LLM orchestration)
+- Python 3.11+, FastAPI, Pydantic v2, Pillow, PyPDF2, sentence-transformers
+- LanceDB (vector store on S3/B2 with hybrid BM25 + dense search), LangChain (LLM orchestration)
+- Cross-encoder reranking (ms-marco-MiniLM-L-6-v2, CPU-friendly)
 - OpenAI (default for chat + embeddings) or Anthropic Claude (optional for chat)
 - Backblaze B2 (S3-compatible object storage for files + vectors)
 - pnpm workspaces (monorepo)

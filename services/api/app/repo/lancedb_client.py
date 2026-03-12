@@ -261,10 +261,11 @@ def search_hybrid(
     db = get_db()
     table = db.open_table(CHUNKS_TABLE)
     try:
-        # LanceDB 0.20 hybrid: pass text query to search(), vector via .vector()
+        # LanceDB 0.20 hybrid: search() takes only query_type, set vector/text explicitly
         query_builder = (
-            table.search(query, query_type="hybrid")
+            table.search(query_type="hybrid")
             .vector(query_vector)
+            .text(query)
             .limit(k)
         )
         if filters:

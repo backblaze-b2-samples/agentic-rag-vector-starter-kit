@@ -8,6 +8,7 @@ from pydantic import BaseModel
 class RetrievalRoute(StrEnum):
     """How the agent should handle this request."""
     kb_only = "kb_only"
+    doc_info = "doc_info"
     no_retrieval = "no_retrieval"
 
 
