@@ -45,9 +45,9 @@ export default function RootLayout({
             <SidebarProvider>
               <TooltipProvider>
                 <AppSidebar />
-                <div className="flex flex-1 flex-col">
+                <div className="flex flex-1 flex-col h-svh min-h-0">
                   <Header />
-                  <main className="flex-1 overflow-auto p-6">{children}</main>
+                  <main className="relative flex-1 overflow-auto p-6">{children}</main>
                 </div>
                 <Toaster />
               </TooltipProvider>

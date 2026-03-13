@@ -3,7 +3,6 @@
 import { ExternalLink, FileText, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Citation } from "@vibe-coding-starter-kit/shared";
 
 interface CitationPanelProps {
@@ -16,17 +15,17 @@ export function CitationPanel({ citations, activeCitation, onClose }: CitationPa
   if (!citations.length) return null;
 
   return (
-    <div className="w-72 min-w-0 border-l bg-background flex flex-col h-full overflow-hidden shrink-0">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b px-4 py-3">
+    <div className="w-72 border-l bg-background flex flex-col shrink-0 overflow-hidden">
+      {/* Fixed header */}
+      <div className="flex items-center justify-between border-b px-4 py-3 shrink-0">
         <h3 className="text-sm font-semibold">Sources ({citations.length})</h3>
         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
           <X className="h-4 w-4" />
         </Button>
       </div>
 
-      {/* Citation list */}
-      <ScrollArea className="flex-1">
+      {/* Scrollable citation list — native scroll avoids Radix height issues */}
+      <div className="flex-1 overflow-y-auto min-h-0">
         <div className="space-y-3 p-4">
           {citations.map((citation) => (
             <div
@@ -78,7 +77,7 @@ export function CitationPanel({ citations, activeCitation, onClose }: CitationPa
             </div>
           ))}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

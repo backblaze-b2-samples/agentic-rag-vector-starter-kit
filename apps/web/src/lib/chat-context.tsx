@@ -39,6 +39,21 @@ const ChatContext = createContext<ChatContextValue>({
   removeSession: async () => {},
 });
 
+/** Map raw API message rows to frontend Message objects. */
+function parseMessages(raw: unknown[]): Message[] {
+  return (raw as Array<{
+    role: "user" | "assistant";
+    content: string;
+    citations?: Citation[];
+    retrieval_metadata?: RetrievalInfo | null;
+  }>).map((m) => ({
+    role: m.role,
+    content: m.content,
+    citations: m.citations ?? [],
+    retrieval: m.retrieval_metadata ?? null,
+  }));
+}
+
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -53,11 +68,25 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Load sessions on mount
+  // Load sessions on mount and auto-select the most recent one
   useEffect(() => {
     let cancelled = false;
     listChatSessions(50)
-      .then((list) => { if (!cancelled) setSessions(list); })
+      .then(async (list) => {
+        if (cancelled) return;
+        setSessions(list);
+        // Auto-load the most recent session so the user sees their last conversation
+        if (list.length > 0) {
+          try {
+            const data = await getChatSession(list[0].session_id);
+            if (cancelled) return;
+            setMessages(parseMessages(data.messages as unknown[]));
+            setSessionId(list[0].session_id);
+          } catch {
+            /* session load failed, start fresh */
+          }
+        }
+      })
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
@@ -65,18 +94,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const switchSession = useCallback(async (id: string) => {
     try {
       const data = await getChatSession(id);
-      const msgs: Message[] = (data.messages as Array<{
-        role: "user" | "assistant";
-        content: string;
-        citations?: Citation[];
-        retrieval_metadata?: RetrievalInfo | null;
-      }>).map((m) => ({
-        role: m.role,
-        content: m.content,
-        citations: m.citations ?? [],
-        retrieval: m.retrieval_metadata ?? null,
-      }));
-      setMessages(msgs);
+      setMessages(parseMessages(data.messages as unknown[]));
       setSessionId(id);
     } catch {
       /* session may have been deleted */

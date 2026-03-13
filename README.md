@@ -1,7 +1,19 @@
 <!-- last_verified: 2026-03-11 -->
 # Agentic RAG Vector Starter Kit
 
-A production-ready **agentic RAG starter kit** and **retrieval-augmented generation template** for building AI-powered document Q&A applications. Upload documents, automatically chunk, classify, summarize, and embed them into vectors, then chat with your knowledge base using a multi-step agentic retrieval pipeline with citations.
+A production-ready **Agentic RAG (Retrieval-Augmented Generation) starter kit** for building AI-powered document Q&A systems.
+
+This template demonstrates how to ingest documents, chunk content, classify and summarize text, generate vector embeddings, and query a knowledge base using an agentic retrieval pipeline with citations.
+
+## Screenshots
+
+<p align="center">
+  <img src="Agentic-RAG-Dashboard.png" alt="Agentic RAG Dashboard" width="900">
+</p>
+
+<p align="center">
+  <img src="Agentic-RAG-Chat.png" alt="Agentic RAG Chat Interface" width="900">
+</p>
 
 Built on **[Backblaze B2](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=oss-starter)** cloud storage, **LanceDB** vector database, and **LangChain**. Works with **OpenAI** (one key for everything) or **Anthropic Claude** for chat.
 

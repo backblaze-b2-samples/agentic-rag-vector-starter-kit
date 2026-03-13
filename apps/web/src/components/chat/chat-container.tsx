@@ -142,8 +142,8 @@ export function ChatContainer() {
       <SessionSidebar />
 
       {/* Main chat area */}
-      <div className="flex flex-1 flex-col min-w-0">
-        <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+      <div className="flex flex-1 flex-col min-w-0 min-h-0">
+        <ScrollArea className="flex-1 min-h-0 p-4" ref={scrollRef}>
           <div className="mx-auto max-w-3xl space-y-6">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center pt-20 text-center">
