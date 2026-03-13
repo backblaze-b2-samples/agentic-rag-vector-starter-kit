@@ -37,18 +37,23 @@ function mimeToLabel(mime: string) {
 
 export function RecentUploadsTable() {
   const [files, setFiles] = useState<FileMetadata[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadedKey, setLoadedKey] = useState<number | null>(null);
   const { refreshKey } = useRefresh();
 
+  const loading = loadedKey !== refreshKey;
+
   useEffect(() => {
-    setLoading(true);
+    let cancelled = false;
     getFiles("", 10)
-      .then(setFiles)
+      .then((data) => { if (!cancelled) setFiles(data); })
       .catch(() => {
-        setFiles([]);
-        toast.error("Failed to load recent uploads");
+        if (!cancelled) {
+          setFiles([]);
+          toast.error("Failed to load recent uploads");
+        }
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoadedKey(refreshKey); });
+    return () => { cancelled = true; };
   }, [refreshKey]);
 
   return (

@@ -11,18 +11,23 @@ import type { UploadStats } from "@vibe-coding-starter-kit/shared";
 
 export function StatsCards() {
   const [stats, setStats] = useState<UploadStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadedKey, setLoadedKey] = useState<number | null>(null);
   const { refreshKey } = useRefresh();
 
+  const loading = loadedKey !== refreshKey;
+
   useEffect(() => {
-    setLoading(true);
+    let cancelled = false;
     getFileStats()
-      .then(setStats)
+      .then((data) => { if (!cancelled) setStats(data); })
       .catch(() => {
-        setStats(null);
-        toast.error("Failed to load stats");
+        if (!cancelled) {
+          setStats(null);
+          toast.error("Failed to load stats");
+        }
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoadedKey(refreshKey); });
+    return () => { cancelled = true; };
   }, [refreshKey]);
 
   const cards = [

@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @property
+    def b2_region(self) -> str:
+        """Derive B2 signing region from endpoint (e.g. us-west-004)."""
+        ep = self.b2_s3_endpoint
+        if "//s3." in ep:
+            return ep.split("//s3.")[1].split(".")[0]
+        return "us-west-004"
+
+    @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.api_cors_origins.split(",")]
 

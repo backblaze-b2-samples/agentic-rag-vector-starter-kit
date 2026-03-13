@@ -21,18 +21,21 @@ def _make_file(key: str, hours_ago: int) -> FileMetadata:
     )
 
 
+def _sorted_newest_first(files: list[FileMetadata]) -> list[FileMetadata]:
+    """Simulate repo layer returning files sorted newest-first."""
+    return sorted(files, key=lambda f: f.uploaded_at, reverse=True)
+
+
 @pytest.mark.asyncio
 async def test_recent_uploads_sorted_newest_first(client, monkeypatch):
     """Files are returned newest-first, not alphabetically."""
-    fake_files = [
+    fake_files = _sorted_newest_first([
         _make_file("uploads/alpha.txt", hours_ago=24),  # oldest
         _make_file("uploads/zebra.txt", hours_ago=0),  # newest
         _make_file("uploads/middle.txt", hours_ago=12),
-    ]
-    # Simulate S3 returning in lexicographic order (alpha, middle, zebra)
-    fake_files.sort(key=lambda f: f.key)
+    ])
     monkeypatch.setattr(
-        files_service, "list_files", lambda prefix, max_keys: fake_files
+        files_service, "list_files", lambda prefix, **kw: fake_files
     )
 
     response = await client.get("/files?limit=2")
@@ -47,14 +50,12 @@ async def test_recent_uploads_sorted_newest_first(client, monkeypatch):
 @pytest.mark.asyncio
 async def test_limit_applied_after_sort(client, monkeypatch):
     """Limit slices after date sort, not before S3 fetch."""
-    fake_files = [
+    fake_files = _sorted_newest_first([
         _make_file(f"uploads/file{i:03d}.txt", hours_ago=100 - i)
         for i in range(20)
-    ]
-    # S3 returns lexicographic order
-    fake_files.sort(key=lambda f: f.key)
+    ])
     monkeypatch.setattr(
-        files_service, "list_files", lambda prefix, max_keys: fake_files
+        files_service, "list_files", lambda prefix, **kw: fake_files
     )
 
     response = await client.get("/files?limit=5")

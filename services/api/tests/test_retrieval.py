@@ -4,61 +4,63 @@ from unittest.mock import patch
 
 from app.service.reranker import validate_evidence
 from app.service.retrieval import (
-    _classify_intent,
+    _classify_and_plan,
     _fuse_and_dedup,
-    _plan_queries,
     retrieve,
 )
 from app.types import CandidateChunk, RankedEvidence, RetrievalRoute
 
 
 @patch("app.service.retrieval.chat_completion")
-def test_classify_intent_kb_only(mock_chat):
-    """Questions about documents route to kb_only."""
-    mock_chat.return_value = '{"route": "kb_only", "intent_type": "q_and_a"}'
-    result = _classify_intent("What is the refund policy?")
-    assert result.route == RetrievalRoute.kb_only
-    assert result.intent_type == "q_and_a"
-
-
-@patch("app.service.retrieval.chat_completion")
-def test_classify_intent_no_retrieval(mock_chat):
-    """Conversational messages route to no_retrieval."""
-    mock_chat.return_value = '{"route": "no_retrieval", "intent_type": "general"}'
-    result = _classify_intent("Hello!")
-    assert result.route == RetrievalRoute.no_retrieval
-
-
-@patch("app.service.retrieval.chat_completion")
-def test_classify_intent_error_defaults_kb(mock_chat):
-    """LLM errors default to kb_only."""
-    mock_chat.side_effect = RuntimeError("API down")
-    result = _classify_intent("What is X?")
-    assert result.route == RetrievalRoute.kb_only
-
-
-@patch("app.service.retrieval.chat_completion")
-def test_plan_queries_generates_variants(mock_chat):
-    """Query planning generates multiple variants."""
+def test_classify_and_plan_kb_only(mock_chat):
+    """Questions about documents route to kb_only with query variants."""
     mock_chat.return_value = (
-        '{"variants": ['
-        '{"query": "refund policy details", "query_type": "semantic"},'
-        '{"query": "refund return policy", "query_type": "keyword"}'
-        '], "reasoning": "Two approaches"}'
-    )
-    plan = _plan_queries("What is the refund policy?")
-    assert len(plan.variants) >= 2
-    assert any(v.query_type == "semantic" for v in plan.variants)
-
-
-@patch("app.service.retrieval.chat_completion")
-def test_plan_queries_includes_original(mock_chat):
-    """Query plan always includes the original question."""
-    mock_chat.return_value = (
-        '{"variants": [{"query": "other query", "query_type": "semantic"}],'
+        '{"route": "kb_only", "intent_type": "q_and_a",'
+        ' "variants": [{"query": "refund policy", "query_type": "semantic"}],'
         ' "reasoning": "test"}'
     )
-    plan = _plan_queries("original question")
+    intent, plan = _classify_and_plan("What is the refund policy?")
+    assert intent.route == RetrievalRoute.kb_only
+    assert intent.intent_type == "q_and_a"
+    assert len(plan.variants) >= 1
+
+
+@patch("app.service.retrieval.chat_completion")
+def test_classify_and_plan_no_retrieval(mock_chat):
+    """Conversational messages route to no_retrieval."""
+    mock_chat.return_value = '{"route": "no_retrieval", "intent_type": "general", "variants": []}'
+    intent, plan = _classify_and_plan("Hello!")
+    assert intent.route == RetrievalRoute.no_retrieval
+    assert len(plan.variants) == 0
+
+
+@patch("app.service.retrieval.chat_completion")
+def test_classify_and_plan_doc_info(mock_chat):
+    """Questions about documents themselves route to doc_info."""
+    mock_chat.return_value = '{"route": "doc_info", "intent_type": "general", "variants": []}'
+    intent, _plan = _classify_and_plan("What documents do you have?")
+    assert intent.route == RetrievalRoute.doc_info
+
+
+@patch("app.service.retrieval.chat_completion")
+def test_classify_and_plan_error_defaults_kb(mock_chat):
+    """LLM errors default to kb_only with original question as variant."""
+    mock_chat.side_effect = RuntimeError("API down")
+    intent, plan = _classify_and_plan("What is X?")
+    assert intent.route == RetrievalRoute.kb_only
+    assert len(plan.variants) == 1
+    assert plan.variants[0].query == "What is X?"
+
+
+@patch("app.service.retrieval.chat_completion")
+def test_classify_and_plan_includes_original(mock_chat):
+    """Query plan always includes the original question."""
+    mock_chat.return_value = (
+        '{"route": "kb_only", "intent_type": "general",'
+        ' "variants": [{"query": "other query", "query_type": "semantic"}],'
+        ' "reasoning": "test"}'
+    )
+    _, plan = _classify_and_plan("original question")
     queries = [v.query for v in plan.variants]
     assert "original question" in queries
 
@@ -123,12 +125,13 @@ def test_validate_evidence_empty():
     assert "No relevant evidence" in result.gap_description
 
 
-@patch("app.service.retrieval._classify_intent")
-def test_retrieve_no_retrieval_route(mock_intent):
+@patch("app.service.retrieval._classify_and_plan")
+def test_retrieve_no_retrieval_route(mock_classify):
     """No-retrieval route returns empty evidence fast."""
-    from app.types import IntentClassification
-    mock_intent.return_value = IntentClassification(
-        route=RetrievalRoute.no_retrieval, intent_type="general",
+    from app.types import IntentClassification, QueryPlan
+    mock_classify.return_value = (
+        IntentClassification(route=RetrievalRoute.no_retrieval, intent_type="general"),
+        QueryPlan(variants=[], reasoning="no retrieval"),
     )
     evidence_set, metrics = retrieve("Hello there!")
     assert metrics.route == "no_retrieval"

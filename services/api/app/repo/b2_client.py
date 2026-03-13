@@ -35,9 +35,11 @@ def _public_url(key: str) -> str | None:
 
 @functools.lru_cache(maxsize=1)
 def get_s3_client():
+    # region_name must match the endpoint for SigV4 signing on B2
     return boto3.client(
         "s3",
         endpoint_url=settings.b2_s3_endpoint,
+        region_name=settings.b2_region,
         aws_access_key_id=settings.b2_application_key_id,
         aws_secret_access_key=settings.b2_application_key,
         config=Config(
@@ -84,19 +86,30 @@ def upload_file(
     )
 
 
-def list_files(prefix: str = "", max_keys: int = 1000) -> list[FileMetadata]:
-    """List files from B2. Raises RuntimeError on S3 failure."""
+def list_files(prefix: str = "", max_keys: int = 0) -> list[FileMetadata]:
+    """List files from B2, paginating through all results.
+
+    Args:
+        prefix: S3 key prefix filter.
+        max_keys: Maximum files to return. 0 means all objects in the bucket.
+
+    Raises RuntimeError on S3 failure.
+    """
     client = get_s3_client()
+    contents: list[dict] = []
+    kwargs: dict = {"Bucket": settings.b2_bucket_name, "Prefix": prefix, "MaxKeys": 1000}
     try:
-        response = client.list_objects_v2(
-            Bucket=settings.b2_bucket_name,
-            Prefix=prefix,
-            MaxKeys=max_keys,
-        )
+        while True:
+            response = client.list_objects_v2(**kwargs)
+            contents.extend(response.get("Contents", []))
+            if not response.get("IsTruncated"):
+                break
+            kwargs["ContinuationToken"] = response["NextContinuationToken"]
     except ClientError as e:
         raise RuntimeError(f"B2 list failed: {e}") from e
+
     files: list[FileMetadata] = []
-    for obj in response.get("Contents", []):
+    for obj in contents:
         folder, filename = _split_key(obj["Key"])
         files.append(
             FileMetadata(
@@ -111,6 +124,8 @@ def list_files(prefix: str = "", max_keys: int = 1000) -> list[FileMetadata]:
             )
         )
     files.sort(key=lambda f: f.uploaded_at, reverse=True)
+    if max_keys > 0:
+        return files[:max_keys]
     return files
 
 

@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 if settings.b2_application_key_id and not os.environ.get("AWS_ACCESS_KEY_ID"):
     os.environ["AWS_ACCESS_KEY_ID"] = settings.b2_application_key_id
     os.environ["AWS_SECRET_ACCESS_KEY"] = settings.b2_application_key
-    os.environ["AWS_DEFAULT_REGION"] = settings.b2_s3_endpoint.split("//s3.")[1].split(".")[0] if "//s3." in settings.b2_s3_endpoint else "us-west-004"
+    os.environ["AWS_DEFAULT_REGION"] = settings.b2_region
     os.environ["AWS_ENDPOINT_URL"] = settings.b2_s3_endpoint
     os.environ["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true"
     logger.info(

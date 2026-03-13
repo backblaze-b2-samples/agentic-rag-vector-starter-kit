@@ -45,13 +45,13 @@ import { useRefresh } from "@/lib/refresh-context";
 import { buildFileTree, type TreeNode, type TreeFolder } from "@/lib/file-tree";
 import type { FileMetadata } from "@vibe-coding-starter-kit/shared";
 
-function getFileIcon(contentType: string) {
-  if (contentType.startsWith("image/")) return ImageIcon;
-  if (contentType === "application/pdf") return FileTextIcon;
-  if (contentType.startsWith("video/")) return FileVideoIcon;
-  if (contentType.startsWith("audio/")) return FileAudioIcon;
-  if (contentType === "application/zip") return FileArchiveIcon;
-  return FileIcon;
+function renderFileIcon(contentType: string, className: string) {
+  if (contentType.startsWith("image/")) return <ImageIcon className={className} />;
+  if (contentType === "application/pdf") return <FileTextIcon className={className} />;
+  if (contentType.startsWith("video/")) return <FileVideoIcon className={className} />;
+  if (contentType.startsWith("audio/")) return <FileAudioIcon className={className} />;
+  if (contentType === "application/zip") return <FileArchiveIcon className={className} />;
+  return <FileIcon className={className} />;
 }
 
 function countFiles(node: TreeFolder): number {
@@ -125,14 +125,13 @@ function TreeRow({
   }
 
   const file = node.data;
-  const Icon = getFileIcon(file.content_type);
 
   return (
     <div
       className="group flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
       style={{ paddingLeft: `${depth * 20 + 28}px` }}
     >
-      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+      {renderFileIcon(file.content_type, "h-4 w-4 shrink-0 text-muted-foreground")}
       <span className="truncate">{node.name}</span>
       <span className="ml-auto flex items-center gap-3 shrink-0">
         <span className="text-xs text-muted-foreground hidden sm:inline">

@@ -18,20 +18,32 @@ interface FilePreviewProps {
 }
 
 export function FilePreview({ file, open, onOpenChange }: FilePreviewProps) {
+  // Track which file key we've loaded a URL for (null = not loaded yet)
+  const [loadedForKey, setLoadedForKey] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+
+  const activeKey = file && open ? file.key : null;
+  const loading = activeKey !== null && loadedForKey !== activeKey;
 
   useEffect(() => {
-    if (!file || !open) {
-      setPreviewUrl(null);
-      return;
-    }
-    setLoading(true);
+    if (!activeKey || !file) return;
+
+    let cancelled = false;
     getDownloadUrl(file.key)
-      .then(({ url }) => setPreviewUrl(url))
-      .catch(() => setPreviewUrl(file.url))
-      .finally(() => setLoading(false));
-  }, [file, open]);
+      .then(({ url }) => {
+        if (!cancelled) {
+          setPreviewUrl(url);
+          setLoadedForKey(activeKey);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPreviewUrl(file.url);
+          setLoadedForKey(activeKey);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [activeKey, file]);
 
   if (!file) return null;
 
@@ -49,6 +61,7 @@ export function FilePreview({ file, open, onOpenChange }: FilePreviewProps) {
             {loading ? (
               <Skeleton className="h-48 w-full" />
             ) : isImage && previewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- external B2 URLs can't use next/image
               <img
                 src={previewUrl}
                 alt={file.filename}

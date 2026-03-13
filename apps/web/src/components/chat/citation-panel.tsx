@@ -16,7 +16,7 @@ export function CitationPanel({ citations, activeCitation, onClose }: CitationPa
   if (!citations.length) return null;
 
   return (
-    <div className="w-64 border-l bg-background flex flex-col h-full overflow-hidden shrink-0">
+    <div className="w-72 min-w-0 border-l bg-background flex flex-col h-full overflow-hidden shrink-0">
       {/* Header */}
       <div className="flex items-center justify-between border-b px-4 py-3">
         <h3 className="text-sm font-semibold">Sources ({citations.length})</h3>
@@ -38,13 +38,13 @@ export function CitationPanel({ citations, activeCitation, onClose }: CitationPa
                 }`}
             >
               {/* Citation header */}
-              <div className="flex items-start gap-2 mb-2">
-                <Badge variant="outline" className="shrink-0">
+              <div className="flex items-start gap-2 mb-2 min-w-0">
+                <Badge variant="outline" className="shrink-0 text-[10px]">
                   [{citation.index}]
                 </Badge>
-                <div className="min-w-0">
-                  <p className="font-medium truncate">{citation.doc_title}</p>
-                  <p className="text-xs text-muted-foreground truncate">
+                <div className="min-w-0 overflow-hidden">
+                  <p className="font-medium text-xs truncate">{citation.doc_title}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
                     {citation.section_path}
                   </p>
                 </div>
@@ -68,11 +68,11 @@ export function CitationPanel({ citations, activeCitation, onClose }: CitationPa
                   href={citation.download_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
                 >
-                  <FileText className="h-3 w-3" />
-                  View source
-                  <ExternalLink className="h-3 w-3" />
+                  <FileText className="h-3 w-3 shrink-0" />
+                  <span className="truncate">View source</span>
+                  <ExternalLink className="h-2.5 w-2.5 shrink-0" />
                 </a>
               )}
             </div>
