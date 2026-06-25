@@ -1,4 +1,4 @@
-<!-- last_verified: 2026-03-10 -->
+<!-- last_verified: 2026-06-25 -->
 # Dev Workflows
 
 Engineering workflows for this repo.
@@ -40,6 +40,10 @@ Engineering workflows for this repo.
 - [ ] Run full lint + test suite before submitting
 - [ ] Docs updated in the same PR as code changes
 - [ ] Only change files relevant to the task — no drive-by improvements
+
+## Repository Metadata
+
+- Required GitHub topics for discoverability: `b2-labs`, `backblaze-b2`, `cloudstorage`
 
 ## Testing
 
