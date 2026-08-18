@@ -16,7 +16,7 @@
     "concurrently": "^9.1.0"
   },
   "engines": {
-    "node": ">=20",
-    "pnpm": ">=9"
+    "node": ">=20.9.0",
+    "pnpm": ">=10"
   }
 }
